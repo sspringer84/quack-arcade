@@ -5,6 +5,7 @@ import { Engine } from "./engine.js";
 import { drawDuck } from "./duck.js";
 import * as audio from "./audio.js";
 import { duckCover } from "./games/duckcover.js";
+import { quackLift } from "./games/quacklift.js";
 import { createFlyers } from "./flyingducks.js";
 import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "./flyervariants.js";
 
@@ -205,7 +206,7 @@ if (micSens) {
 
 const GAMES = [
   { key: "duckcover", title: "DUCK & COVER", sub: "Rubber-duck debugging climber", ready: true },
-  { key: "quacklift", title: "QUACK LIFT", sub: "Wasserstand-Climber", ready: false },
+  { key: "quacklift", title: "QUACK LIFT", sub: "1-Knopf Tide-Climber", ready: true },
   { key: "quackoustic", title: "QUACKOUSTIC", sub: "Squeeze-to-tune", ready: false },
 ];
 
@@ -216,7 +217,8 @@ function goHub() {
 
 function launch(key) {
   if (key === "duckcover") engine.setScene(duckCover(engine, goHub, micUi));
-  // quacklift / quackoustic land in later phases
+  else if (key === "quacklift") engine.setScene(quackLift(engine, goHub));
+  // quackoustic lands in a later phase
 }
 
 const hubScene = {
