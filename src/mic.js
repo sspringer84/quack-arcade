@@ -222,7 +222,10 @@ export function createMic({ onJump, onMeter, onState } = {}) {
     }
 
     const floorLevel = toLevel(floor);
-    const margin = lerp(0.22, 0.03, sens); // easier to trigger, esp. at high sens
+    // margin above the ambient floor. Calibrated to a real device (floor~0.31,
+    // squeak peak~0.70): at mid-slider trig sits ~0.08 over floor (~+6dB) — well
+    // under a real squeak, clear of ambient. At max sensitivity ~0.02 over floor.
+    const margin = lerp(0.13, 0.02, sens);
     const triggerLevel = Math.max(floorLevel + margin, ABS_MIN_LEVEL);
     const releaseLevel = floorLevel + margin * 0.5; // hysteresis
     const hotNow = level > triggerLevel && selfMuteMs <= 0 && sawValidFrame;
