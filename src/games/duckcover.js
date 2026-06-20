@@ -81,6 +81,7 @@ const DUCK_R = 24;
 const COL_MAX = 460; // virtual play-column width
 const LABEL_PAD = 9; // px of box padding on each side of a bug label
 const MARGIN = 14;
+const RIPPLE_LIFE = 0.5; // seconds a landing soundwave ring stays alive
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -100,6 +101,9 @@ export function duckCover(engine, goHub, micUi) {
     joyCx = 0,
     joyCy = 0,
     joyAxis = 0;
+  // juice: landing soundwave rings + screen-shake on a loud squeak
+  let ripples = [];
+  let shake = 0;
 
   // the rubber-duck-squeak controller: a squeak calls jump(strength).
   const mic = createMic({
@@ -132,6 +136,8 @@ export function duckCover(engine, goHub, micUi) {
     facing = 1;
     joyId = null;
     joyAxis = 0;
+    ripples = [];
+    shake = 0;
     const bw = ledgeWidth(null);
     plats = [
       { x: ox + cw / 2 - bw / 2, y: H - 120, w: bw, bug: null, fixed: true },
@@ -180,6 +186,8 @@ export function duckCover(engine, goHub, micUi) {
       duck.grounded = false;
       duck.squash = t === null ? 1.35 : 1.2 + 0.25 * t;
       audio.quack(340 + (t === null ? 0.5 : t) * 180 + Math.random() * 40);
+      // a loud squeak kicks the screen (mic only; tap/keyboard don't shake)
+      if (t !== null && t > 0.45) shake = Math.max(shake, 4 + t * 9);
       if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v });
     }
   }
@@ -204,6 +212,7 @@ export function duckCover(engine, goHub, micUi) {
 
   function update(e, dt) {
     mic.tick(dt); // before the guard: a squeak can start / restart the run
+    if (shake > 0) shake = Math.max(0, shake - dt * 38); // decay even on game-over
     if (state !== "play") return;
     const W = e.width;
     const H = e.height;
@@ -241,6 +250,14 @@ export function duckCover(engine, goHub, micUi) {
           duck.x > p.x - 4 &&
           duck.x < p.x + p.w + 4
         ) {
+          // soundwave ring on a real landing (not the per-frame resting touch)
+          if (duck.vy > 220)
+            ripples.push({
+              x: duck.x,
+              y: p.y,
+              t: 0,
+              mag: clampN(duck.vy / 1100, 0.4, 1),
+            });
           duck.y = p.y - DUCK_R;
           duck.vy = 0;
           duck.grounded = true;
@@ -257,6 +274,14 @@ export function duckCover(engine, goHub, micUi) {
     }
 
     duck.squash += (1 - duck.squash) * Math.min(1, dt * 12);
+
+    for (const r of ripples) r.t += dt;
+    ripples = ripples.filter((r) => r.t < RIPPLE_LIFE);
+    if (QA) {
+      QA.fx = QA.fx || { shakePeak: 0, ripplesSeen: 0 };
+      if (shake > QA.fx.shakePeak) QA.fx.shakePeak = shake;
+      if (ripples.length > QA.fx.ripplesSeen) QA.fx.ripplesSeen = ripples.length;
+    }
 
     cam = Math.min(cam, duck.y - H * 0.45);
     cam -= autoScroll * dt;
@@ -277,8 +302,14 @@ export function duckCover(engine, goHub, micUi) {
     const H = e.height;
     const { cw, ox } = col(W);
 
+    // screen-shake offset on a loud squeak. World + bg shake; HUD stays put.
+    const sx = shake > 0.4 ? (Math.random() * 2 - 1) * shake : 0;
+    const sy = shake > 0.4 ? (Math.random() * 2 - 1) * shake : 0;
+    ctx.save();
+    ctx.translate(sx, sy);
+
     ctx.fillStyle = "#0b0d12";
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(-16, -16, W + 32, H + 32); // margin so shake doesn't bare an edge
     ctx.fillStyle = "#11141c";
     ctx.fillRect(ox, 0, cw, H);
     ctx.strokeStyle = "rgba(120,140,180,0.10)";
@@ -318,12 +349,29 @@ export function duckCover(engine, goHub, micUi) {
         ctx.stroke();
       }
     }
+    // soundwave rings from landings (world space, scroll with the ledges)
+    for (const r of ripples) {
+      const k = r.t / RIPPLE_LIFE;
+      ctx.strokeStyle = "#9becff";
+      for (let ring = 0; ring < 2; ring++) {
+        const kk = k - ring * 0.16;
+        if (kk < 0) continue;
+        ctx.globalAlpha = (1 - kk) * 0.85 * r.mag;
+        ctx.lineWidth = 3.5 - ring * 1.5;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, 6 + kk * (58 + r.mag * 40), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
     drawDuck(ctx, duck.x, duck.y, DUCK_R * 1.5, {
       squash: duck.squash,
       flip: facing < 0,
       pose: duck.grounded ? "default" : "jump",
     });
     ctx.restore();
+    ctx.restore(); // end screen-shake (HUD below stays steady)
 
     // clean top strip: fade out ledges scrolling past so they don't clash
     // with the score/best/hub HUD drawn on top of it.
