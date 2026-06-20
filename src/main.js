@@ -1,15 +1,15 @@
-// main.js — boots the engine, wires audio unlock + mute, and shows the hub.
-// Phase 0: the hub is a placeholder that renders the canvas-drawn duck and
-// quacks on tap. Game cards get wired in as each game lands.
+// main.js — boots the engine, wires audio unlock + mute, and routes between the
+// hub menu and the games.
 
 import { Engine } from "./engine.js";
 import { drawDuck } from "./duck.js";
 import * as audio from "./audio.js";
+import { duckCover } from "./games/duckcover.js";
 
 const canvas = document.getElementById("game");
 const engine = new Engine(canvas);
 
-// Unlock audio on the very first user gesture anywhere (autoplay policy).
+// Unlock audio on the first user gesture anywhere (autoplay policy).
 const unlockOnce = () => {
   audio.unlock();
   window.removeEventListener("pointerdown", unlockOnce);
@@ -18,55 +18,118 @@ const unlockOnce = () => {
 window.addEventListener("pointerdown", unlockOnce);
 window.addEventListener("keydown", unlockOnce);
 
-// Mute toggle.
 const muteBtn = document.getElementById("mute");
 muteBtn.addEventListener("click", () => {
   const m = audio.toggleMuted();
   muteBtn.textContent = m ? "🔇" : "🔊";
 });
 
-// Placeholder hub scene.
+const GAMES = [
+  { key: "duckcover", title: "DUCK & COVER", sub: "Rubber-duck debugging climber", ready: true },
+  { key: "quacklift", title: "QUACK LIFT", sub: "Wasserstand-Climber · bald", ready: false },
+  { key: "quackoustic", title: "QUACKOUSTIC", sub: "Squeeze-to-tune · bald", ready: false },
+];
+
+function goHub() {
+  engine.setScene(hubScene);
+}
+
+function launch(key) {
+  if (key === "duckcover") engine.setScene(duckCover(engine, goHub));
+  // quacklift / quackoustic land in later phases
+}
+
 const hubScene = {
   t: 0,
+  cards: [],
   enter() {
     this.t = 0;
-  },
-  onPress() {
-    audio.unlock();
-    audio.quack(300 + Math.random() * 90);
   },
   update(_e, dt) {
     this.t += dt;
   },
+  layout(e) {
+    const W = e.width;
+    const H = e.height;
+    const cw = Math.min(W * 0.86, 460);
+    const ch = Math.min(H * 0.12, 92);
+    const gap = ch * 0.28;
+    const totalH = GAMES.length * ch + (GAMES.length - 1) * gap;
+    const startY = H * 0.46 - totalH / 2;
+    this.cards = GAMES.map((g, i) => ({
+      g,
+      x: (W - cw) / 2,
+      y: startY + i * (ch + gap),
+      w: cw,
+      h: ch,
+    }));
+  },
   render(e, ctx) {
-    const w = e.width;
-    const h = e.height;
-
-    // background
-    const g = ctx.createLinearGradient(0, 0, 0, h);
+    const W = e.width;
+    const H = e.height;
+    const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#1b2a4a");
     g.addColorStop(1, "#0f1830");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, W, H);
 
-    // title
+    // title + bobbing duck
+    const bob = Math.sin(this.t * 2) * 6;
+    drawDuck(ctx, W * 0.5, H * 0.2 + bob, Math.min(W * 0.1, 64), {
+      squash: 1 + Math.sin(this.t * 2) * 0.05,
+    });
     ctx.fillStyle = "#ffd23f";
-    ctx.font = `bold ${Math.min(w * 0.1, 64)}px system-ui, sans-serif`;
+    ctx.font = `bold ${Math.min(W * 0.085, 52)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("QUACK ARCADE", w / 2, h * 0.27);
+    ctx.fillText("QUACK ARCADE", W / 2, H * 0.31);
 
-    // bobbing duck
-    const bob = Math.sin(this.t * 2) * 8;
-    const squash = 1 + Math.sin(this.t * 2) * 0.05;
-    drawDuck(ctx, w / 2, h * 0.52 + bob, Math.min(w * 0.13, 96), { squash });
+    this.layout(e);
+    for (const c of this.cards) {
+      ctx.fillStyle = c.g.ready ? "rgba(255,210,63,0.14)" : "rgba(255,255,255,0.05)";
+      roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+      ctx.fill();
+      ctx.strokeStyle = c.g.ready ? "rgba(255,210,63,0.5)" : "rgba(255,255,255,0.1)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-    // hint
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = `${Math.min(w * 0.045, 22)}px system-ui, sans-serif`;
-    ctx.fillText("Tippen zum Quaken · Spiele folgen", w / 2, h * 0.76);
+      ctx.textAlign = "left";
+      ctx.fillStyle = c.g.ready ? "#ffd23f" : "rgba(255,255,255,0.4)";
+      ctx.font = `bold ${Math.min(c.w * 0.07, 24)}px system-ui, sans-serif`;
+      ctx.fillText(c.g.title, c.x + 20, c.y + c.h * 0.38);
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.font = `${Math.min(c.w * 0.045, 15)}px system-ui, sans-serif`;
+      ctx.fillText(c.g.sub, c.x + 20, c.y + c.h * 0.68);
+    }
+  },
+  onPress(e) {
+    const p = e.input.pointer;
+    for (const c of this.cards) {
+      if (
+        c.g.ready &&
+        p.x >= c.x &&
+        p.x <= c.x + c.w &&
+        p.y >= c.y &&
+        p.y <= c.y + c.h
+      ) {
+        audio.unlock();
+        audio.quack(360);
+        launch(c.g.key);
+        return;
+      }
+    }
   },
 };
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
 
 engine.setScene(hubScene);
 engine.start();
