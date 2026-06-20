@@ -76,6 +76,7 @@ const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const JUMP_BUFFER_MS = 140; // a jump input this long before landing still fires
 const SHAKE_LOUD = 1.1; // mic loudness over a max-height squeak that starts shake
 const SHAKE_MAX = 15; // shake cap (px)
+const ONBOARD_DUR = 4500; // first-run onboarding hint duration (ms of play)
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
 const MOVE = 340; // horizontal speed at full tilt (keyboard or joystick)
 const JOY_R = 52; // virtual joystick: knob travel for a full -1..+1 axis
@@ -111,6 +112,15 @@ export function duckCover(engine, goHub, micUi) {
   let jumpBuf = 0;
   let jumpBufStrength;
   let jumpBufLoud;
+  // first-run onboarding hint (shown once, then persisted off)
+  const ONBOARD_KEY = "quack:dc-seen";
+  let onboard = 0;
+  let onboardSeen = false;
+  try {
+    onboardSeen = !!localStorage.getItem(ONBOARD_KEY);
+  } catch (e) {
+    /* ignore */
+  }
 
   // the rubber-duck-squeak controller: a squeak calls jump(strength).
   const mic = createMic({
@@ -146,6 +156,7 @@ export function duckCover(engine, goHub, micUi) {
     ripples = [];
     shake = 0;
     jumpBuf = 0;
+    onboard = onboardSeen ? 0 : ONBOARD_DUR;
     const bw = ledgeWidth(null);
     plats = [
       { x: ox + cw / 2 - bw / 2, y: H - 120, w: bw, bug: null, fixed: true },
@@ -185,7 +196,17 @@ export function duckCover(engine, goHub, micUi) {
       reset();
       return;
     }
-    if (state === "ready") state = "play";
+    if (state === "ready") {
+      state = "play";
+      if (!onboardSeen) {
+        onboardSeen = true;
+        try {
+          localStorage.setItem(ONBOARD_KEY, "1");
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
     if (duck.jumps > 0) {
       doJump(strength, loud);
     } else {
@@ -239,6 +260,7 @@ export function duckCover(engine, goHub, micUi) {
     const left = ox + MARGIN + DUCK_R;
     const right = ox + cw - MARGIN - DUCK_R;
     if (jumpBuf > 0) jumpBuf = Math.max(0, jumpBuf - dt * 1000);
+    if (onboard > 0) onboard = Math.max(0, onboard - dt * 1000);
 
     // horizontal: keyboard direction, else the joystick axis (analog -1..+1).
     // velocity model = smooth accel toward the target speed + a short coast.
@@ -255,7 +277,7 @@ export function duckCover(engine, goHub, micUi) {
       duck.vx = 0;
     }
     if (QA)
-      QA.duck = { x: duck.x, vx: duck.vx, vy: duck.vy, grounded: duck.grounded, buf: jumpBuf };
+      QA.duck = { x: duck.x, vx: duck.vx, vy: duck.vy, grounded: duck.grounded, buf: jumpBuf, onboard };
 
     const prevFeet = duck.y + DUCK_R;
     duck.vy += GRAV * dt;
@@ -439,8 +461,40 @@ export function duckCover(engine, goHub, micUi) {
       drawDuck(ctx, W / 2, H * 0.375, Math.min(W * 0.1, 58), { pose: "sad" });
     }
 
+    if (onboard > 0 && state === "play") drawOnboard(ctx, W, H);
+
     if (isTouch && (state === "play" || state === "ready"))
       drawJoystick(ctx, W, H);
+  }
+
+  // first-run hint that teaches the squeak hook; fades out over its last 0.7s
+  function drawOnboard(ctx, W, H) {
+    const a = clampN(onboard / 700, 0, 1);
+    const cy = H * 0.2;
+    const pw = Math.min(W * 0.92, 400);
+    const ph = 60;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "rgba(8,10,16,0.82)";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(W / 2 - pw / 2, cy - ph / 2, pw, ph, 14);
+    else ctx.rect(W / 2 - pw / 2, cy - ph / 2, pw, ph);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffd23f";
+    ctx.font = `bold ${Math.min(W * 0.05, 19)}px system-ui, sans-serif`;
+    ctx.fillText("🦆 Echte Gummiente quietschen = Sprung", W / 2, cy - 9);
+    ctx.fillStyle = "rgba(223,230,243,0.85)";
+    ctx.font = `${Math.min(W * 0.034, 13)}px system-ui, sans-serif`;
+    ctx.fillText(
+      isTouch
+        ? "Mikro unten aktivieren · sonst tippen · Joystick lenkt"
+        : "Mikro aktivieren · sonst Leertaste · ◀ ▶ lenken",
+      W / 2,
+      cy + 13
+    );
+    ctx.restore();
   }
 
   // floating thumb-stick, bottom-right. Faint at rest, brighter while grabbed.
