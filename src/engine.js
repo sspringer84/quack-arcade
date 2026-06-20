@@ -74,7 +74,10 @@ export class Engine {
       this._release(e);
     });
     c.addEventListener("pointercancel", () => this._release({}));
-    c.addEventListener("pointermove", (e) => this._updatePointer(e));
+    c.addEventListener("pointermove", (e) => {
+      this._updatePointer(e);
+      this.scene && this.scene.onMove && this.scene.onMove(this, e);
+    });
     c.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
