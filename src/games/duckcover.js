@@ -74,6 +74,8 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const JUMP_BUFFER_MS = 140; // a jump input this long before landing still fires
+const SHAKE_LOUD = 1.1; // mic loudness over a max-height squeak that starts shake
+const SHAKE_MAX = 15; // shake cap (px)
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
 const MOVE = 340; // horizontal speed at full tilt (keyboard or joystick)
 const JOY_R = 52; // virtual joystick: knob travel for a full -1..+1 axis
@@ -108,10 +110,11 @@ export function duckCover(engine, goHub, micUi) {
   // jump buffer: an input fired while airborne, remembered for touchdown
   let jumpBuf = 0;
   let jumpBufStrength;
+  let jumpBufLoud;
 
   // the rubber-duck-squeak controller: a squeak calls jump(strength).
   const mic = createMic({
-    onJump: (s) => jump(s),
+    onJump: (s, loud) => jump(s, loud),
     onMeter: (m) => micUi && micUi.meter(m),
     onState: (st) => micUi && micUi.state(st),
   });
@@ -177,22 +180,23 @@ export function duckCover(engine, goHub, micUi) {
 
   // strength undefined = tap/keyboard (byte-identical to the old fixed jump);
   // 0..1 = mic squeak, louder squeeze -> higher jump ("peak = height").
-  function jump(strength) {
+  function jump(strength, loud) {
     if (state === "over") {
       reset();
       return;
     }
     if (state === "ready") state = "play";
     if (duck.jumps > 0) {
-      doJump(strength);
+      doJump(strength, loud);
     } else {
       // airborne: buffer it so an input just before landing still fires
       jumpBuf = JUMP_BUFFER_MS;
       jumpBufStrength = strength;
+      jumpBufLoud = loud;
     }
   }
 
-  function doJump(strength) {
+  function doJump(strength, loud) {
     const t = strength === undefined ? null : clampN(strength, 0, 1);
     const v = t === null ? JUMP : JUMP_MIN + (JUMP_MAX - JUMP_MIN) * t;
     duck.vy = -v;
@@ -200,9 +204,11 @@ export function duckCover(engine, goHub, micUi) {
     duck.grounded = false;
     duck.squash = t === null ? 1.35 : 1.2 + 0.25 * t;
     audio.quack(340 + (t === null ? 0.5 : t) * 180 + Math.random() * 40);
-    // a loud squeak kicks the screen (mic only; tap/keyboard don't shake)
-    if (t !== null && t > 0.45) shake = Math.max(shake, 4 + t * 9);
-    if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v });
+    // screen-shake only on a squeak clearly LOUDER than a max-height one
+    // (loud is uncapped; tap/keyboard pass none, so they never shake)
+    if (loud !== undefined && loud > SHAKE_LOUD)
+      shake = Math.max(shake, Math.min(SHAKE_MAX, 5 + (loud - SHAKE_LOUD) * 16));
+    if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v, loud });
   }
 
   function keyDir(e) {
@@ -291,7 +297,7 @@ export function duckCover(engine, goHub, micUi) {
     // a buffered jump (input arrived just before landing) fires on touchdown
     if (duck.grounded && jumpBuf > 0) {
       jumpBuf = 0;
-      doJump(jumpBufStrength);
+      doJump(jumpBufStrength, jumpBufLoud);
     }
 
     duck.squash += (1 - duck.squash) * Math.min(1, dt * 12);

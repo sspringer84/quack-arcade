@@ -269,9 +269,11 @@ export function createMic({ onJump, onMeter, onState } = {}) {
 
   function fire(floorLevel) {
     const above = Math.max(peakLevel - floorLevel, 0); // rise over ambient
-    let strength = clamp(above / STR_SPAN, 0, 1);
+    const raw = above / STR_SPAN; // UNCAPPED: 1.0 == a max-height squeak; the
+    // height clamps to [0,1] but screen-shake uses the headroom above 1.0.
+    let strength = clamp(raw, 0, 1);
     strength = Math.pow(strength, GAMMA); // gamma<1: generous mid-high
-    onJump && onJump(strength);
+    onJump && onJump(strength, raw);
   }
 
   return {
