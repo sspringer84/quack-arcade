@@ -40,7 +40,7 @@ export function createMic({ onJump, onMeter, onState } = {}) {
   const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.03;
   const TAU_UP = 3.0, TAU_DOWN = 0.4; // floor rise slow, fall fast (seconds)
   const ABS_MIN_LEVEL = 0.1, ATTACK_FRAMES = 2;
-  const PEAK_WINDOW_MS = 180, REFRACTORY_MS = 200;
+  const PEAK_WINDOW_MS = 120, REFRACTORY_MS = 120; // shorter -> faster re-fire
   const GAMMA = 0.7;
   // jump HEIGHT is decoupled from the activation threshold: it scales with how
   // far the squeak rose ABOVE the ambient floor, over this span. So lowering
