@@ -36,7 +36,7 @@ const GRAV = 2600;
 const JUMP = 1040;
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
 const MOVE = 340;
-const SPACING = 118; // vertical gap between ledges
+const SPACING = 130; // vertical gap between ledges
 const DUCK_R = 24;
 const COL_MAX = 460; // virtual play-column width
 const PLAT_FRAC = 0.28; // ledge width as fraction of the column
@@ -89,7 +89,13 @@ export function duckCover(engine, goHub) {
   function addPlatformUp() {
     const { cw, ox, pw } = col(engine.width);
     topY -= SPACING;
-    const x = ox + MARGIN + Math.random() * (cw - 2 * MARGIN - pw);
+    const span = cw - 2 * MARGIN - pw;
+    const prev = plats[plats.length - 1];
+    const minOffset = span * 0.4; // force a lateral move between consecutive ledges
+    let x = ox + MARGIN + Math.random() * span;
+    for (let t = 0; t < 8 && prev && Math.abs(x - prev.x) < minOffset; t++) {
+      x = ox + MARGIN + Math.random() * span;
+    }
     plats.push({
       x,
       y: topY,
@@ -251,6 +257,7 @@ export function duckCover(engine, goHub) {
     drawDuck(ctx, duck.x, duck.y, DUCK_R * 1.5, {
       squash: duck.squash,
       flip: facing < 0,
+      pose: duck.grounded ? "default" : "jump",
     });
     ctx.restore();
 
@@ -281,6 +288,7 @@ export function duckCover(engine, goHub) {
         "#ff7b9c",
         "Tippen für nochmal"
       );
+      drawDuck(ctx, W / 2, H * 0.375, Math.min(W * 0.1, 58), { pose: "sad" });
     }
   }
 

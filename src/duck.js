@@ -1,35 +1,43 @@
-// duck.js — the shared rubber-duck identity. Prefers a generated sprite
-// (assets/duck.png, Flux Schnell, chroma-keyed to transparent) and falls back
-// to canvas primitives if the image hasn't loaded (or fails). squash > 1 =
-// stretched tall, < 1 = squashed flat (apparent volume roughly preserved).
+// duck.js — the shared rubber-duck identity. Prefers generated sprites
+// (assets/duck*.png, Flux Schnell, chroma-keyed) and falls back to canvas
+// primitives if an image hasn't loaded. Poses: "default" (classic), "jump"
+// (airborne), "sad" (game over). squash > 1 = stretched tall, < 1 = flat.
 
-const duckImg = typeof Image !== "undefined" ? new Image() : null;
-let spriteReady = false;
-if (duckImg) {
-  duckImg.onload = () => {
-    spriteReady = true;
-  };
-  duckImg.src = "assets/duck.png";
+const SPRITES = {
+  default: "assets/duck.png",
+  jump: "assets/duck-jump.png",
+  sad: "assets/duck-sad.png",
+};
+
+const imgs = {};
+const ready = {};
+if (typeof Image !== "undefined") {
+  for (const [key, src] of Object.entries(SPRITES)) {
+    const im = new Image();
+    im.onload = () => (ready[key] = true);
+    im.src = src;
+    imgs[key] = im;
+  }
 }
 
-// height of the drawn sprite per unit of `size` (tuned to roughly match the
-// footprint the old canvas duck had at the same call sites)
-const SPRITE_K = 1.7;
+const SPRITE_K = 1.7; // sprite height per unit of `size`
 
 export function drawDuck(ctx, x, y, size = 40, opts = {}) {
-  const { squash = 1, rot = 0, flip = false } = opts;
+  const { squash = 1, rot = 0, flip = false, pose = "default" } = opts;
   const sx = flip ? -1 : 1;
   const vy = squash;
   const vx = 1 / Math.sqrt(squash);
 
-  if (spriteReady && duckImg.naturalHeight) {
+  const key = ready[pose] ? pose : ready.default ? "default" : null;
+  if (key) {
+    const im = imgs[key];
     const h = size * SPRITE_K;
-    const w = h * (duckImg.naturalWidth / duckImg.naturalHeight);
+    const w = h * (im.naturalWidth / im.naturalHeight);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
     ctx.scale(sx * vx, vy);
-    ctx.drawImage(duckImg, -w / 2, -h / 2, w, h);
+    ctx.drawImage(im, -w / 2, -h / 2, w, h);
     ctx.restore();
     return;
   }
