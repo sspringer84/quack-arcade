@@ -55,7 +55,8 @@ body {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: max(12px, env(safe-area-inset-bottom));
+  /* top, below the score/mute HUD — bottom-left is the joystick's */
+  top: max(58px, calc(env(safe-area-inset-top) + 52px));
   z-index: 10;
   width: min(92vw, 360px);
   display: flex;

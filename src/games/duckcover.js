@@ -6,7 +6,8 @@
 //
 // Controls:
 //   Desktop: ◀ ▶ / A D move · Space / W / ↑ / click = jump (single jump)
-//   Touch:   tap = jump and steer toward the tapped side of the screen
+//   Touch:   floating joystick (bottom-left) steers L/R · tap elsewhere = jump
+//            (a rubber-duck squeak into the mic also jumps — see mic.js)
 //
 // Play happens inside a fixed-width virtual column (<= COL_MAX) centred on the
 // canvas, so difficulty is identical on a phone and a wide desktop.
@@ -38,14 +39,12 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
-const MOVE = 340; // keyboard horizontal speed (held)
-const TOUCH_SPEED = 380; // touch: per-tap horizontal flick velocity
-const TOUCH_DEAD = 22; // touch: tap within this of the duck = straight jump
-const TOUCH_COAST = 3.5; // touch: how fast a flick decays back to 0 (low = glides)
+const MOVE = 340; // horizontal speed at full tilt (keyboard or joystick)
+const JOY_R = 52; // virtual joystick: knob travel for a full -1..+1 axis
 const SPACING = 130; // vertical gap between ledges
 const DUCK_R = 24;
 const COL_MAX = 460; // virtual play-column width
-const PLAT_FRAC = 0.28; // ledge width as fraction of the column
+const LABEL_PAD = 9; // px of box padding on each side of a bug label
 const MARGIN = 14;
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -60,8 +59,12 @@ export function duckCover(engine, goHub, micUi) {
   const QA = typeof window !== "undefined" ? window.__QA__ : null;
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
-  // touch: a one-shot horizontal flick velocity set on tap, consumed next frame
-  let touchKick = 0;
+  // floating virtual joystick (touch): grabbed in the bottom-left, steers L/R.
+  // joyId = the pointer that owns it (null = released); joyAxis in -1..+1.
+  let joyId = null,
+    joyCx = 0,
+    joyCy = 0,
+    joyAxis = 0;
 
   // the rubber-duck-squeak controller: a squeak calls jump(strength).
   const mic = createMic({
@@ -72,22 +75,31 @@ export function duckCover(engine, goHub, micUi) {
 
   function col(W) {
     const cw = Math.min(W, COL_MAX);
-    return { cw, ox: (W - cw) / 2, pw: Math.round(cw * PLAT_FRAC) };
+    return { cw, ox: (W - cw) / 2 };
+  }
+
+  // ledge box sized to its bug label so the duck lands on exactly what it reads
+  function ledgeWidth(bug) {
+    const ctx = engine.ctx;
+    ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+    return Math.ceil(ctx.measureText(bug || "main()").width) + 2 * LABEL_PAD;
   }
 
   function reset() {
     const W = engine.width;
     const H = engine.height;
-    const { cw, ox, pw } = col(W);
+    const { cw, ox } = col(W);
     state = "ready";
     score = 0;
     best = engine.highscore("duckcover");
     cam = 0;
     autoScroll = 20;
     facing = 1;
-    touchKick = 0;
+    joyId = null;
+    joyAxis = 0;
+    const bw = ledgeWidth(null);
     plats = [
-      { x: ox + cw / 2 - pw / 2, y: H - 120, w: pw, bug: null, fixed: true },
+      { x: ox + cw / 2 - bw / 2, y: H - 120, w: bw, bug: null, fixed: true },
     ];
     duck = {
       x: ox + cw / 2,
@@ -103,22 +115,18 @@ export function duckCover(engine, goHub, micUi) {
   }
 
   function addPlatformUp() {
-    const { cw, ox, pw } = col(engine.width);
+    const { cw, ox } = col(engine.width);
     topY -= SPACING;
-    const span = cw - 2 * MARGIN - pw;
+    const bug = BUGS[(Math.random() * BUGS.length) | 0];
+    const w = ledgeWidth(bug);
+    const span = Math.max(0, cw - 2 * MARGIN - w);
     const prev = plats[plats.length - 1];
     const minOffset = span * 0.4; // force a lateral move between consecutive ledges
     let x = ox + MARGIN + Math.random() * span;
     for (let t = 0; t < 8 && prev && Math.abs(x - prev.x) < minOffset; t++) {
       x = ox + MARGIN + Math.random() * span;
     }
-    plats.push({
-      x,
-      y: topY,
-      w: pw,
-      bug: BUGS[(Math.random() * BUGS.length) | 0],
-      fixed: false,
-    });
+    plats.push({ x, y: topY, w, bug, fixed: false });
   }
 
   // strength undefined = tap/keyboard (byte-identical to the old fixed jump);
@@ -154,6 +162,11 @@ export function duckCover(engine, goHub, micUi) {
     return ev.clientX - r.left;
   }
 
+  function relY(e, ev) {
+    const r = e.canvas.getBoundingClientRect();
+    return ev.clientY - r.top;
+  }
+
   function update(e, dt) {
     mic.tick(dt); // before the guard: a squeak can start / restart the run
     if (state !== "play") return;
@@ -163,22 +176,12 @@ export function duckCover(engine, goHub, micUi) {
     const left = ox + MARGIN + DUCK_R;
     const right = ox + cw - MARGIN - DUCK_R;
 
-    // horizontal: keyboard holds a direction; a touch tap injects a one-shot
-    // flick velocity that then coasts. No homing-to-finger — that pulled the
-    // duck onto the fingertip like a black hole and felt way too hard.
+    // horizontal: keyboard direction, else the joystick axis (analog -1..+1).
+    // velocity model = smooth accel toward the target speed + a short coast.
     const d = keyDir(e);
-    if (touchKick !== 0) {
-      duck.vx = touchKick;
-      touchKick = 0;
-    }
-    if (d !== 0) {
-      facing = d;
-      duck.vx += (d * MOVE - duck.vx) * Math.min(1, dt * 16);
-    } else {
-      // no key held: coast and decay (carries the touch flick, eases keyboard)
-      duck.vx += (0 - duck.vx) * Math.min(1, dt * TOUCH_COAST);
-      if (Math.abs(duck.vx) > 5) facing = duck.vx < 0 ? -1 : 1;
-    }
+    const axis = d !== 0 ? d : joyId !== null ? joyAxis : 0;
+    if (axis !== 0) facing = axis < 0 ? -1 : 1;
+    duck.vx += (axis * MOVE - duck.vx) * Math.min(1, dt * 16);
     duck.x += duck.vx * dt;
     if (duck.x < left) {
       duck.x = left;
@@ -269,14 +272,14 @@ export function duckCover(engine, goHub, micUi) {
       ctx.fillRect(p.x, p.y, p.w, 22);
       ctx.fillStyle = p.fixed ? "#3ad07a" : "#ff7b9c";
       const label = p.bug || "main()";
-      ctx.fillText(label, p.x + 8, p.y + 11);
+      ctx.fillText(label, p.x + LABEL_PAD, p.y + 11);
       if (p.fixed && p.bug) {
         const tw = ctx.measureText(label).width;
         ctx.strokeStyle = "#3ad07a";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(p.x + 8, p.y + 11);
-        ctx.lineTo(p.x + 8 + tw, p.y + 11);
+        ctx.moveTo(p.x + LABEL_PAD, p.y + 11);
+        ctx.lineTo(p.x + LABEL_PAD + tw, p.y + 11);
         ctx.stroke();
       }
     }
@@ -301,7 +304,7 @@ export function duckCover(engine, goHub, micUi) {
 
     if (state === "ready") {
       const hint = isTouch
-        ? "Tippen = Sprung · Seite antippen lenkt dorthin"
+        ? "Joystick unten links lenkt · Tippen = Sprung"
         : "◀ ▶ / A D bewegen · Leertaste = Sprung";
       banner(ctx, W, H, "DUCK & COVER", hint, "#ffd23f");
     } else if (state === "over") {
@@ -316,6 +319,36 @@ export function duckCover(engine, goHub, micUi) {
       );
       drawDuck(ctx, W / 2, H * 0.375, Math.min(W * 0.1, 58), { pose: "sad" });
     }
+
+    if (isTouch && (state === "play" || state === "ready"))
+      drawJoystick(ctx, H);
+  }
+
+  // floating thumb-stick, bottom-left. Faint at rest, brighter while grabbed.
+  function drawJoystick(ctx, H) {
+    const active = joyId !== null;
+    const cx = active ? joyCx : 84;
+    const cy = active ? joyCy : H - 96;
+    ctx.save();
+    ctx.globalAlpha = active ? 0.62 : 0.3;
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, JOY_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    const kx = cx + (active ? joyAxis * JOY_R : 0);
+    ctx.fillStyle = "#ffd23f";
+    ctx.beginPath();
+    ctx.arc(kx, cy, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.font = "15px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("‹ ›", kx, cy);
+    ctx.restore();
   }
 
   function banner(ctx, W, H, title, sub, color, foot) {
@@ -343,16 +376,33 @@ export function duckCover(engine, goHub, micUi) {
       goHub();
       return;
     }
-    if (ev && ev.pointerType === "touch") {
-      // tap = jump + a flick toward the side of the duck you tapped (no homing)
-      const dx = relX(e, ev) - duck.x;
-      touchKick =
-        Math.abs(dx) < TOUCH_DEAD ? 0 : (dx < 0 ? -1 : 1) * TOUCH_SPEED;
-      jump();
-      return;
+    // during play, a touch starting in the bottom-left grabs the floating
+    // joystick (steers); every other touch — and any tap — is a jump.
+    if (ev && ev.pointerType === "touch" && state === "play") {
+      const rx = relX(e, ev);
+      const ry = relY(e, ev);
+      if (rx < e.width * 0.45 && ry > e.height * 0.4) {
+        joyId = ev.pointerId;
+        joyCx = rx;
+        joyCy = ry;
+        joyAxis = 0;
+        return; // steering, not a jump
+      }
     }
-    // mouse / pen / keyboard
-    jump();
+    jump(); // tap (or a mic squeak) = jump
+  }
+
+  function onMove(e, ev) {
+    if (joyId === null || ev.pointerId !== joyId) return;
+    joyAxis = clampN((relX(e, ev) - joyCx) / JOY_R, -1, 1);
+  }
+
+  function onRelease(e, ev) {
+    if (joyId === null) return;
+    // ignore a different finger lifting; release on our pointer or on cancel ({})
+    if (ev && ev.pointerId !== undefined && ev.pointerId !== joyId) return;
+    joyId = null;
+    joyAxis = 0;
   }
 
   return {
@@ -370,5 +420,7 @@ export function duckCover(engine, goHub, micUi) {
     update,
     render,
     onPress,
+    onMove,
+    onRelease,
   };
 }
