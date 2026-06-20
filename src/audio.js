@@ -4,6 +4,12 @@
 
 let ctx = null;
 let muted = false;
+// Optional sink notified whenever the game emits sound, so the mic controller
+// can open a self-mute window (AEC is off, so our own quack re-enters the mic).
+let onOut = null;
+export function onAudioOut(cb) {
+  onOut = cb;
+}
 
 export function unlock() {
   if (!ctx) {
@@ -31,6 +37,7 @@ export function toggleMuted() {
 // One-shot squeaky quack. `freq` sets the character (higher = cuter/smaller).
 export function quack(freq = 320, dur = 0.18) {
   if (muted || !ctx) return;
+  if (onOut) onOut(dur * 1000);
   const t = ctx.currentTime;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -49,6 +56,7 @@ export function quack(freq = 320, dur = 0.18) {
 // Descending "sad" quack for misses / game-over.
 export function sadQuack() {
   if (muted || !ctx) return;
+  if (onOut) onOut(450);
   const t = ctx.currentTime;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();

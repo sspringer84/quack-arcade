@@ -13,6 +13,7 @@
 
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
+import { createMic } from "../mic.js";
 
 const BUGS = [
   "// TODO: fix later",
@@ -33,7 +34,9 @@ const BUGS = [
 ];
 
 const GRAV = 2600;
-const JUMP = 1040;
+const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
+const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
+const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
 const MOVE = 340;
 const SPACING = 130; // vertical gap between ledges
@@ -44,15 +47,25 @@ const MARGIN = 14;
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
-export function duckCover(engine, goHub) {
+export function duckCover(engine, goHub, micUi) {
   const isTouch =
     typeof window !== "undefined" &&
     window.matchMedia &&
     window.matchMedia("(pointer: coarse)").matches;
 
+  // test-only telemetry sink (set by main.js when ?qa=1); inert otherwise
+  const QA = typeof window !== "undefined" ? window.__QA__ : null;
+
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
   // touch: last-tapped x the duck drifts toward (tap also jumps)
   let touchTargetX;
+
+  // the rubber-duck-squeak controller: a squeak calls jump(strength).
+  const mic = createMic({
+    onJump: (s) => jump(s),
+    onMeter: (m) => micUi && micUi.meter(m),
+    onState: (st) => micUi && micUi.state(st),
+  });
 
   function col(W) {
     const cw = Math.min(W, COL_MAX);
@@ -105,18 +118,23 @@ export function duckCover(engine, goHub) {
     });
   }
 
-  function jump() {
+  // strength undefined = tap/keyboard (byte-identical to the old fixed jump);
+  // 0..1 = mic squeak, louder squeeze -> higher jump ("peak = height").
+  function jump(strength) {
     if (state === "over") {
       reset();
       return;
     }
     if (state === "ready") state = "play";
     if (duck.jumps > 0) {
-      duck.vy = -JUMP;
+      const t = strength === undefined ? null : clampN(strength, 0, 1);
+      const v = t === null ? JUMP : JUMP_MIN + (JUMP_MAX - JUMP_MIN) * t;
+      duck.vy = -v;
       duck.jumps--;
       duck.grounded = false;
-      duck.squash = 1.35;
-      audio.quack(340 + (MAX_JUMPS - duck.jumps) * 60 + Math.random() * 40);
+      duck.squash = t === null ? 1.35 : 1.2 + 0.25 * t;
+      audio.quack(340 + (t === null ? 0.5 : t) * 180 + Math.random() * 40);
+      if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v });
     }
   }
 
@@ -134,6 +152,7 @@ export function duckCover(engine, goHub) {
   }
 
   function update(e, dt) {
+    mic.tick(dt); // before the guard: a squeak can start / restart the run
     if (state !== "play") return;
     const W = e.width;
     const H = e.height;
@@ -330,6 +349,11 @@ export function duckCover(engine, goHub) {
   return {
     enter() {
       reset();
+      micUi && micUi.show(mic);
+    },
+    exit() {
+      mic.disable(); // stop the mic track (OS indicator off) on leaving the game
+      micUi && micUi.hide();
     },
     onResize() {
       if (state === "ready") reset();

@@ -49,3 +49,111 @@ body {
 #mute:hover {
   background: rgba(255, 255, 255, 0.22);
 }
+
+/* mic (rubber-duck-squeak) controller — bottom-center, thumb-reachable */
+#mic {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 10;
+  width: min(92vw, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(8, 10, 16, 0.72);
+  color: #fff;
+  font: 13px system-ui, sans-serif;
+  touch-action: manipulation;
+}
+#mic[hidden] {
+  display: none;
+}
+#mic-toggle {
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 210, 63, 0.16);
+  color: #ffd23f;
+  font: 600 15px system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#mic-toggle[aria-pressed="true"] {
+  background: rgba(58, 208, 122, 0.18);
+  color: #3ad07a;
+  box-shadow: 0 0 0 2px rgba(58, 208, 122, 0.5) inset;
+}
+#mic-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+#mic.pulse #mic-toggle {
+  animation: micpulse 1s ease-in-out infinite;
+}
+@keyframes micpulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+#mic-cal[hidden] {
+  display: none;
+}
+#mic-cal {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+#mic-meter {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+#mic-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: #ffd23f;
+  transition: width 40ms linear;
+}
+#mic-fill.hot {
+  background: #3ad07a;
+}
+#mic-tick {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 16px;
+  background: #fff;
+  left: 50%;
+}
+#mic-tick[hidden] {
+  display: none;
+}
+#mic-cal label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+#mic-sens {
+  flex: 1;
+  touch-action: manipulation;
+}
+#mic-status {
+  font-size: 11px;
+  opacity: 0.7;
+  text-align: center;
+}
