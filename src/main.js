@@ -315,7 +315,7 @@ const hubScene = {
     const bob = Math.sin(t * 2) * 6;
     // ping-pong so no two adjacent poses are static: ...surprised -> sleep ->
     // surprised (a little wake-up beat) instead of looping sleep -> default
-    const POSES = ["default", "wave", "surprised", "sleep", "surprised", "wave"];
+    const POSES = ["default", "hacker", "wave", "surprised", "sleep", "hacker", "wave"];
     const pose = POSES[Math.floor(t / 2.6) % POSES.length];
     const hx = W * 0.5,
       hy = H * 0.15 + bob,

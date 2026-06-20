@@ -6,6 +6,7 @@ export const FLYER_VARIANTS = [
   "wave",
   "surprised",
   "love",
+  "hacker",
   "fly_angel",
   "fly_balloon",
   "fly_cape",

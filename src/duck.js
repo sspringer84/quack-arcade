@@ -11,6 +11,7 @@ const SPRITES = {
   surprised: "assets/duck-surprised.png",
   sleep: "assets/duck-sleep.png",
   love: "assets/duck-love.png", // heart-eyes — flashed as a combo cameo
+  hacker: "assets/duck-hacker.png", // hoodie + code-reflecting shades (dev duck)
   // ambient flyer fleet (side-view variants drifting across hub + desktop margins)
   fly_angel: "assets/fly_angel.png",
   fly_balloon: "assets/fly_balloon.png",
