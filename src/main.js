@@ -226,8 +226,29 @@ const hubScene = {
   enter() {
     this.t = 0;
   },
+  embers: null,
   update(e, dt) {
     this.t += dt;
+    if (!this.embers) {
+      // resolution-independent drifting neon dust (fractions of W/H)
+      this.embers = [];
+      for (let i = 0; i < 26; i++)
+        this.embers.push({
+          x: Math.random(),
+          y: Math.random(),
+          vy: 0.012 + Math.random() * 0.03,
+          sway: Math.random() * Math.PI * 2,
+          r: 1 + Math.random() * 2,
+          c: EMBER_COLORS[i % EMBER_COLORS.length],
+        });
+    }
+    for (const m of this.embers) {
+      m.y -= m.vy * dt;
+      if (m.y < -0.03) {
+        m.y = 1.03;
+        m.x = Math.random();
+      }
+    }
     if (e.width >= 720) this.flyers.update(dt, e.width, e.height, 9); // desktop ambient
   },
   layout(e) {
@@ -270,10 +291,25 @@ const hubScene = {
       ctx.stroke();
     }
 
+    // --- drifting neon embers (atmosphere) ---
+    if (this.embers) {
+      ctx.save();
+      for (const m of this.embers) {
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = m.c;
+        ctx.shadowColor = m.c;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(m.x * W + Math.sin(t * 0.6 + m.sway) * 10, m.y * H, m.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // --- ambient flyers drifting across (desktop), behind title + cards ---
     if (W >= 720) this.flyers.render(ctx);
 
-    // --- hero duck on a neon halo ---
+    // --- hero duck on a neon halo + Social-Club emblem ---
     const bob = Math.sin(t * 2) * 6;
     // ping-pong so no two adjacent poses are static: ...surprised -> sleep ->
     // surprised (a little wake-up beat) instead of looping sleep -> default
@@ -282,6 +318,7 @@ const hubScene = {
     const hx = W * 0.5,
       hy = H * 0.15 + bob,
       hs = Math.min(W * 0.13, 78);
+    neonEmblem(ctx, hx, H * 0.15, hs * 1.55, t);
     const halo = ctx.createRadialGradient(hx, hy, 4, hx, hy, hs * 2.3);
     halo.addColorStop(0, "rgba(255,79,163,0.32)");
     halo.addColorStop(1, "rgba(255,79,163,0)");
@@ -291,8 +328,7 @@ const hubScene = {
 
     // --- neon marquee + tagline ---
     const flick = 0.8 + 0.2 * Math.abs(Math.sin(t * 31) * Math.sin(t * 6.3)); // CRT flicker
-    neonText(ctx, "QUACK ARCADE", W / 2, H * 0.3, Math.min(W * 0.1, 56),
-      "#fff3c4", "#ff4fa3", 26 * flick);
+    neonTitle(ctx, "QUACK ARCADE", W / 2, H * 0.3, Math.min(W * 0.1, 56), 30 * flick);
     ctx.globalAlpha = 0.85;
     neonText(ctx, "3 GAMES · 1 RUBBER DUCK", W / 2, H * 0.3 + Math.min(W * 0.052, 32),
       Math.min(W * 0.034, 14), "#9fe9ff", "#36e6ff", 8);
@@ -350,6 +386,40 @@ const hubScene = {
       neonText(ctx, "▶ TAP TO PLAY", W / 2, H * 0.9, Math.min(W * 0.045, 18),
         "#ffe27a", "#ffd23f", 12);
 
+    // --- neon marquee frame + corner brackets (cabinet edge) ---
+    const pad = Math.max(8, Math.min(W, H) * 0.018);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,79,163,0.45)";
+    ctx.shadowColor = "#ff4fa3";
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(pad, pad, W - 2 * pad, H - 2 * pad);
+    ctx.strokeStyle = "#36e6ff";
+    ctx.shadowColor = "#36e6ff";
+    ctx.lineWidth = 3;
+    const cb = 24;
+    for (const [cx, cy, sx, sy] of [
+      [pad, pad, 1, 1],
+      [W - pad, pad, -1, 1],
+      [pad, H - pad, 1, -1],
+      [W - pad, H - pad, -1, -1],
+    ]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + sy * cb);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx + sx * cb, cy);
+      ctx.stroke();
+    }
+    // small neon status tag (top-left, clear of the mute button top-right)
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = "#36e6ff";
+    ctx.fillStyle = "#9fe9ff";
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("■ ONLINE", pad + 16, pad + 16);
+    ctx.restore();
+
     // --- CRT scanlines over everything ---
     ctx.save();
     ctx.globalAlpha = 0.08;
@@ -399,6 +469,53 @@ function neonText(ctx, txt, x, y, size, core, glow, blur) {
   ctx.fillText(txt, x, y);
   ctx.shadowBlur = blur * 0.5;
   ctx.fillText(txt, x, y);
+  ctx.restore();
+}
+
+const EMBER_COLORS = ["#ff4fa3", "#36e6ff", "#ffd23f"];
+
+// the marquee title with a CRT chromatic (RGB-split) fringe + a magenta bloom.
+function neonTitle(ctx, txt, x, y, size, blur) {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `bold ${size}px system-ui, sans-serif`;
+  const sp = Math.max(2, size * 0.045); // chromatic offset scales with size
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = "#36e6ff";
+  ctx.fillText(txt, x - sp, y);
+  ctx.fillStyle = "#ff4fa3";
+  ctx.fillText(txt, x + sp, y);
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = "#ff4fa3";
+  ctx.shadowBlur = blur;
+  ctx.fillStyle = "#fff3c4";
+  ctx.fillText(txt, x, y);
+  ctx.shadowBlur = blur * 0.5;
+  ctx.fillText(txt, x, y);
+  ctx.restore();
+}
+
+// a glowing Social-Club-style emblem ring with slowly rotating tick marks.
+function neonEmblem(ctx, x, y, r, t) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = "#ffd23f";
+  ctx.shadowColor = "#ffd23f";
+  ctx.shadowBlur = 12;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.rotate(t * 0.25);
+  ctx.fillStyle = "#36e6ff";
+  ctx.shadowColor = "#36e6ff";
+  for (let i = 0; i < 12; i++) {
+    ctx.rotate(Math.PI / 6);
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(r + 6, -1.5, 9, 3);
+  }
   ctx.restore();
 }
 
