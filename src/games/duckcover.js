@@ -5,8 +5,8 @@
 // "Have you tried explaining it to the duck?"
 //
 // Controls:
-//   Desktop: ◀ ▶ / A D move · Space / W / ↑ / click = jump (double jump in air)
-//   Touch:   tap = jump (×2) · drag your finger sideways = steer the duck
+//   Desktop: ◀ ▶ / A D move · Space / W / ↑ / click = jump (single jump)
+//   Touch:   tap = jump and steer toward the tapped side of the screen
 //
 // Play happens inside a fixed-width virtual column (<= COL_MAX) centred on the
 // canvas, so difficulty is identical on a phone and a wide desktop.
@@ -41,7 +41,6 @@ const DUCK_R = 24;
 const COL_MAX = 460; // virtual play-column width
 const PLAT_FRAC = 0.28; // ledge width as fraction of the column
 const MARGIN = 14;
-const DRAG_THRESH = 10; // px before a touch counts as a steer-drag
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -52,8 +51,8 @@ export function duckCover(engine, goHub) {
     window.matchMedia("(pointer: coarse)").matches;
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
-  // swipe steering
-  let pointers, steerId, steerX;
+  // touch: last-tapped x the duck drifts toward (tap also jumps)
+  let touchTargetX;
 
   function col(W) {
     const cw = Math.min(W, COL_MAX);
@@ -70,9 +69,7 @@ export function duckCover(engine, goHub) {
     cam = 0;
     autoScroll = 20;
     facing = 1;
-    pointers = new Map();
-    steerId = null;
-    steerX = 0;
+    touchTargetX = null;
     plats = [
       { x: ox + cw / 2 - pw / 2, y: H - 120, w: pw, bug: null, fixed: true },
     ];
@@ -138,12 +135,12 @@ export function duckCover(engine, goHub) {
     const left = ox + MARGIN + DUCK_R;
     const right = ox + cw - MARGIN - DUCK_R;
 
-    if (steerId !== null) {
-      // touch: ease the duck toward the dragging finger's x (precise)
-      const tx = clampN(steerX, left, right);
+    if (touchTargetX !== null) {
+      // touch: drift toward where you last tapped (the tap also jumped)
+      const tx = clampN(touchTargetX, left, right);
       if (tx < duck.x - 1) facing = -1;
       else if (tx > duck.x + 1) facing = 1;
-      duck.x += (tx - duck.x) * Math.min(1, dt * 16);
+      duck.x += (tx - duck.x) * Math.min(1, dt * 12);
       duck.vx = 0;
     } else {
       // keyboard: velocity model with full air control
@@ -271,7 +268,7 @@ export function duckCover(engine, goHub) {
 
     if (state === "ready") {
       const hint = isTouch
-        ? "Tippen = Sprung · ziehen = lenken"
+        ? "Tippen = Sprung + dorthin lenken"
         : "◀ ▶ / A D bewegen · Leertaste = Sprung";
       banner(ctx, W, H, "DUCK & COVER", hint, "#ffd23f");
     } else if (state === "over") {
@@ -313,32 +310,13 @@ export function duckCover(engine, goHub) {
       return;
     }
     if (ev && ev.pointerType === "touch") {
-      // jump immediately (responsive); a following drag becomes steering
+      // tap = jump + steer toward the tapped x
+      touchTargetX = relX(e, ev);
       jump();
-      const x = relX(e, ev);
-      pointers.set(ev.pointerId, { startX: x, x, moved: false });
       return;
     }
     // mouse / pen / keyboard
     jump();
-  }
-
-  function onMove(e, ev) {
-    if (!ev || ev.pointerType !== "touch") return;
-    const rec = pointers.get(ev.pointerId);
-    if (!rec) return;
-    rec.x = relX(e, ev);
-    if (Math.abs(rec.x - rec.startX) > DRAG_THRESH) rec.moved = true;
-    if (rec.moved) {
-      steerId = ev.pointerId;
-      steerX = rec.x;
-    }
-  }
-
-  function onRelease(e, ev) {
-    if (!ev || ev.pointerType !== "touch") return;
-    if (steerId === ev.pointerId) steerId = null;
-    pointers.delete(ev.pointerId);
   }
 
   return {
@@ -351,7 +329,5 @@ export function duckCover(engine, goHub) {
     update,
     render,
     onPress,
-    onMove,
-    onRelease,
   };
 }
