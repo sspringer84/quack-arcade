@@ -474,7 +474,7 @@ function neonText(ctx, txt, x, y, size, core, glow, blur) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `700 ${size}px "Orbitron", system-ui, sans-serif`;
+  ctx.font = `400 ${size}px "Audiowide", system-ui, sans-serif`;
   ctx.shadowColor = glow;
   ctx.fillStyle = core;
   ctx.shadowBlur = blur;
@@ -491,7 +491,7 @@ function neonTitle(ctx, txt, x, y, size, blur) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `800 ${size}px "Orbitron", system-ui, sans-serif`;
+  ctx.font = `400 ${size}px "Audiowide", system-ui, sans-serif`;
   const sp = Math.max(2, size * 0.045); // chromatic offset scales with size
   ctx.globalAlpha = 0.5;
   ctx.fillStyle = "#36e6ff";
@@ -546,8 +546,7 @@ engine.setScene(hubScene);
     await Promise.all([
       document.fonts.load('700 22px "JetBrains Mono"'),
       document.fonts.load('400 13px "JetBrains Mono"'),
-      document.fonts.load('800 40px "Orbitron"'),
-      document.fonts.load('700 40px "Orbitron"'),
+      document.fonts.load('400 40px "Audiowide"'),
     ]);
     await document.fonts.ready;
   } catch (e) {

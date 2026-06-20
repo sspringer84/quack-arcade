@@ -819,7 +819,7 @@ export function duckCover(engine, goHub, micUi) {
     ctx.fillRect(0, H * 0.32, W, H * 0.36);
     ctx.textAlign = "center";
     ctx.fillStyle = color;
-    ctx.font = `800 ${Math.min(W * 0.085, 40)}px "Orbitron", system-ui, sans-serif`;
+    ctx.font = `400 ${Math.min(W * 0.085, 40)}px "Audiowide", system-ui, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.fillText(title, W / 2, H * 0.43);
     ctx.fillStyle = "#cfd6e6";

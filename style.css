@@ -1,6 +1,5 @@
 /* self-hosted display + ui fonts (latin woff2; block so canvas paints once correct) */
-@font-face{font-family:"Orbitron";src:url("assets/fonts/orbitron-700.woff2") format("woff2");font-weight:700;font-style:normal;font-display:block}
-@font-face{font-family:"Orbitron";src:url("assets/fonts/orbitron-800.woff2") format("woff2");font-weight:800;font-style:normal;font-display:block}
+@font-face{font-family:"Audiowide";src:url("assets/fonts/audiowide-400.woff2") format("woff2");font-weight:400;font-style:normal;font-display:block}
 @font-face{font-family:"JetBrains Mono";src:url("assets/fonts/jetbrains-mono-400.woff2") format("woff2");font-weight:400;font-style:normal;font-display:block}
 @font-face{font-family:"JetBrains Mono";src:url("assets/fonts/jetbrains-mono-700.woff2") format("woff2");font-weight:700;font-style:normal;font-display:block}
 
