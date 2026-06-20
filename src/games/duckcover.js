@@ -34,7 +34,7 @@ const BUGS = [
 
 const GRAV = 2600;
 const JUMP = 1040;
-const MAX_JUMPS = 2;
+const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
 const MOVE = 340;
 const SPACING = 118; // vertical gap between ledges
 const DUCK_R = 24;
@@ -271,8 +271,8 @@ export function duckCover(engine, goHub) {
 
     if (state === "ready") {
       const hint = isTouch
-        ? "Tippen = Sprung (×2) · ziehen = lenken"
-        : "◀ ▶ / A D bewegen · Leertaste = Sprung (×2)";
+        ? "Tippen = Sprung · ziehen = lenken"
+        : "◀ ▶ / A D bewegen · Leertaste = Sprung";
       banner(ctx, W, H, "DUCK & COVER", hint, "#ffd23f");
     } else if (state === "over") {
       banner(
