@@ -384,11 +384,11 @@ const hubScene = {
       if (ready) {
         const hi = engine.highscore(c.g.key + "-pts");
         ctx.fillStyle = "#ffd23f";
-        ctx.font = `bold ${Math.min(c.w * 0.05, 14)}px ui-monospace, monospace`;
+        ctx.font = `bold ${Math.min(c.w * 0.05, 14)}px 'JetBrains Mono', ui-monospace, monospace`;
         ctx.fillText(hi > 0 ? "HI " + hi.toLocaleString() : "PLAY ▶", c.x + c.w - 16, c.y + c.h * 0.45);
       } else {
         ctx.fillStyle = "rgba(200,205,225,0.4)";
-        ctx.font = `bold ${Math.min(c.w * 0.045, 13)}px ui-monospace, monospace`;
+        ctx.font = `bold ${Math.min(c.w * 0.045, 13)}px 'JetBrains Mono', ui-monospace, monospace`;
         ctx.fillText("🔒 SOON", c.x + c.w - 16, c.y + c.h * 0.55);
       }
     }
@@ -426,7 +426,7 @@ const hubScene = {
     ctx.shadowBlur = 6;
     ctx.shadowColor = "#36e6ff";
     ctx.fillStyle = "#9fe9ff";
-    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.font = "bold 11px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText("■ ONLINE", pad + 16, pad + 16);
@@ -474,7 +474,7 @@ function neonText(ctx, txt, x, y, size, core, glow, blur) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `bold ${size}px system-ui, sans-serif`;
+  ctx.font = `700 ${size}px "Orbitron", system-ui, sans-serif`;
   ctx.shadowColor = glow;
   ctx.fillStyle = core;
   ctx.shadowBlur = blur;
@@ -491,7 +491,7 @@ function neonTitle(ctx, txt, x, y, size, blur) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `bold ${size}px system-ui, sans-serif`;
+  ctx.font = `800 ${size}px "Orbitron", system-ui, sans-serif`;
   const sp = Math.max(2, size * 0.045); // chromatic offset scales with size
   ctx.globalAlpha = 0.5;
   ctx.fillStyle = "#36e6ff";
@@ -538,4 +538,20 @@ document.addEventListener("visibilitychange", () => {
 });
 
 engine.setScene(hubScene);
-engine.start();
+// canvas rasterizes text at fillText time and never reflows — first frame must
+// already have the real families, else ledge widths measure the fallback. Gate
+// the loop on the fonts (fallbacks in every ctx.font chain keep it playable).
+(async () => {
+  try {
+    await Promise.all([
+      document.fonts.load('700 22px "JetBrains Mono"'),
+      document.fonts.load('400 13px "JetBrains Mono"'),
+      document.fonts.load('800 40px "Orbitron"'),
+      document.fonts.load('700 40px "Orbitron"'),
+    ]);
+    await document.fonts.ready;
+  } catch (e) {
+    /* ignore — fallback fonts keep the game playable */
+  }
+  engine.start();
+})();

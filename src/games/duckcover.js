@@ -174,7 +174,7 @@ export function duckCover(engine, goHub, micUi) {
   // ledge box sized to its bug label so the duck lands on exactly what it reads
   function ledgeWidth(bug) {
     const ctx = engine.ctx;
-    ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+    ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
     return Math.ceil(ctx.measureText(bug || "main()").width) + 2 * LABEL_PAD;
   }
 
@@ -537,7 +537,10 @@ export function duckCover(engine, goHub, micUi) {
       ctx.fillStyle = "rgba(8,10,16,0.3)"; // light scrim
       ctx.fillRect(-16, -16, W + 32, H + 32);
     }
-    ctx.fillStyle = "#11141c";
+    const colG = ctx.createLinearGradient(ox, 0, ox, H);
+    colG.addColorStop(0, "#0d1322"); // top: faint cyan-black (matches QL dusk)
+    colG.addColorStop(1, "#08090f"); // bottom: near-black
+    ctx.fillStyle = colG;
     ctx.fillRect(ox, 0, cw, H);
     ctx.strokeStyle = "rgba(120,140,180,0.10)";
     ctx.lineWidth = 1;
@@ -547,22 +550,60 @@ export function duckCover(engine, goHub, micUi) {
     ctx.moveTo(ox + cw - 0.5, 0);
     ctx.lineTo(ox + cw - 0.5, H);
     ctx.stroke();
-    ctx.strokeStyle = "rgba(120,140,180,0.05)";
+    // verticals (cyan, matches QL grid) + cam-scrolled, depth-faded horizontal rungs
+    ctx.strokeStyle = "rgba(54,230,255,0.05)";
     for (let gx = ox + 40; gx < ox + cw; gx += 80) {
       ctx.beginPath();
       ctx.moveTo(gx, 0);
       ctx.lineTo(gx, H);
       ctx.stroke();
     }
+    const RUNG = 80;
+    const roff = (((-cam) % RUNG) + RUNG) % RUNG; // seamless scroll from cam, no state
+    for (let gy = -roff; gy < H; gy += RUNG) {
+      ctx.strokeStyle = `rgba(54,230,255,${(0.015 + (gy / H) * 0.05).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(ox, gy + 0.5);
+      ctx.lineTo(ox + cw, gy + 0.5);
+      ctx.stroke();
+    }
+    // ambient data-motes — 3 parallax layers, cam-driven, no per-mote state
+    ctx.save();
+    ctx.fillStyle = "#36e6ff";
+    for (let i = 0; i < 14; i++) {
+      const seedX = (i * 53.13) % 1;
+      const speed = 0.25 + (i % 3) * 0.18;
+      const mx = ox + 8 + seedX * (cw - 16);
+      const my = (((-cam * speed + i * 90) % (H + 40)) + (H + 40)) % (H + 40) - 20;
+      ctx.globalAlpha = 0.05 + (i % 3) * 0.03;
+      ctx.fillRect(mx, my, 2, 2);
+    }
+    ctx.restore();
 
     ctx.save();
     ctx.translate(0, -cam);
-    ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+    ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     for (const p of plats) {
       ctx.fillStyle = p.fixed ? "#1b3a2a" : "#2a2030";
       ctx.fillRect(p.x, p.y, p.w, 22);
+      // neon lit top edge (double-line fake-glow, no shadowBlur) — marks the landing lip
+      const lit = p.fixed ? "#3ad07a" : "#ff7b9c";
+      ctx.strokeStyle = lit;
+      ctx.globalAlpha = 0.22;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y + 0.5);
+      ctx.lineTo(p.x + p.w, p.y + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y + 0.5);
+      ctx.lineTo(p.x + p.w, p.y + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = p.fixed ? "#3ad07a" : "#ff7b9c";
       const label = p.bug || "main()";
       ctx.fillText(label, p.x + LABEL_PAD, p.y + 11);
@@ -599,7 +640,7 @@ export function duckCover(engine, goHub, micUi) {
       ctx.globalAlpha = clampN(1 - q.t / q.life, 0, 1);
       ctx.fillStyle = q.c;
       if (q.g) {
-        ctx.font = q.sz + "px ui-monospace, monospace";
+        ctx.font = q.sz + "px 'JetBrains Mono', ui-monospace, monospace";
         ctx.fillText(q.g, q.x, q.y);
       } else ctx.fillRect(q.x - 1.5, q.y - 1.5, 3, 3);
     }
@@ -607,7 +648,7 @@ export function duckCover(engine, goHub, micUi) {
     for (const u of pops) {
       ctx.globalAlpha = clampN(1 - u.t / u.life, 0, 1);
       ctx.fillStyle = u.c;
-      ctx.font = "bold " + (u.big ? 22 : 15) + "px ui-monospace, monospace";
+      ctx.font = "bold " + (u.big ? 22 : 15) + "px 'JetBrains Mono', ui-monospace, monospace";
       ctx.fillText(u.txt, u.x, u.y);
     }
     ctx.globalAlpha = 1;
@@ -644,7 +685,7 @@ export function duckCover(engine, goHub, micUi) {
     ctx.fillRect(ox, 0, cw, 78);
 
     ctx.fillStyle = "#dfe6f3";
-    ctx.font = "bold 22px ui-monospace, monospace";
+    ctx.font = "bold 22px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("bugs fixed: " + score, ox + 14, 12);
@@ -652,13 +693,13 @@ export function duckCover(engine, goHub, micUi) {
     // best pairs with score (both points-scale) — never under the raw bug count.
     ctx.textAlign = "right";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
-    ctx.font = "13px ui-monospace, monospace";
+    ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
     ctx.fillText("‹ hub", ox + cw - 14, 14);
     ctx.fillStyle = "#ffd23f";
-    ctx.font = "bold 15px ui-monospace, monospace";
+    ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
     ctx.fillText("score " + points.toLocaleString(), ox + cw - 14, 36);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
-    ctx.font = "13px ui-monospace, monospace";
+    ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
     ctx.fillText("best " + best.toLocaleString(), ox + cw - 14, 54);
     ctx.textAlign = "left";
     // combo chip + draining timer bar — only while a chain is live
@@ -666,7 +707,7 @@ export function duckCover(engine, goHub, micUi) {
       const m = comboMult(combo);
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "#ffd23f";
-      ctx.font = "bold 14px ui-monospace, monospace";
+      ctx.font = "bold 14px 'JetBrains Mono', ui-monospace, monospace";
       ctx.fillText("combo x" + m + "  (" + combo + ")", ox + 14, 64);
       const bw = 120;
       const frac = clampN(comboTimer / COMBO_WINDOW, 0, 1);
@@ -778,11 +819,11 @@ export function duckCover(engine, goHub, micUi) {
     ctx.fillRect(0, H * 0.32, W, H * 0.36);
     ctx.textAlign = "center";
     ctx.fillStyle = color;
-    ctx.font = `bold ${Math.min(W * 0.085, 40)}px ui-monospace, monospace`;
+    ctx.font = `800 ${Math.min(W * 0.085, 40)}px "Orbitron", system-ui, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.fillText(title, W / 2, H * 0.43);
     ctx.fillStyle = "#cfd6e6";
-    ctx.font = `${Math.min(W * 0.038, 16)}px ui-monospace, monospace`;
+    ctx.font = `${Math.min(W * 0.038, 16)}px 'JetBrains Mono', ui-monospace, monospace`;
     ctx.fillText(sub, W / 2, H * 0.52);
     if (foot) {
       ctx.fillStyle = "rgba(255,255,255,0.55)";

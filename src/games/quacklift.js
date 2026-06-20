@@ -175,6 +175,12 @@ export function quackLift(engine, goHub) {
       ctx.lineTo(gx, H);
       ctx.stroke();
     }
+    for (let gy = (t * 9) % 64; gy < H; gy += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy + 0.5);
+      ctx.lineTo(W, gy + 0.5);
+      ctx.stroke();
+    }
 
     // --- neon walls (top + bottom of each gap) ---
     for (const wl of walls) {
@@ -214,9 +220,22 @@ export function quackLift(engine, goHub) {
     ctx.closePath();
     const wg = ctx.createLinearGradient(0, surf, 0, H);
     wg.addColorStop(0, "rgba(54,230,255,0.34)");
-    wg.addColorStop(1, "rgba(20,80,180,0.22)");
+    wg.addColorStop(1, "rgba(10,40,120,0.30)"); // deeper bottom so caustics read
     ctx.fillStyle = wg;
     ctx.fill();
+    // caustic shimmer under the surface (cheap polylines, no shadow)
+    ctx.save();
+    ctx.globalAlpha = 0.05;
+    ctx.strokeStyle = "#9becff";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      const cy = surf + 30 + i * 46 + Math.sin(t * 1.3 + i) * 8;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 24)
+        ctx.lineTo(x, cy + Math.sin(x * 0.02 + t * 2 + i) * 6);
+      ctx.stroke();
+    }
+    ctx.restore();
     ctx.save();
     ctx.shadowColor = "#36e6ff";
     ctx.shadowBlur = 14;
@@ -235,16 +254,16 @@ export function quackLift(engine, goHub) {
 
     // --- HUD ---
     ctx.fillStyle = "#dfe6f3";
-    ctx.font = "bold 22px ui-monospace, monospace";
+    ctx.font = "bold 22px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("lift: " + score, 16, 12);
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffd23f";
-    ctx.font = "bold 15px ui-monospace, monospace";
+    ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
     ctx.fillText("score " + (score * 100).toLocaleString(), W - 14, 14);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
-    ctx.font = "13px ui-monospace, monospace";
+    ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
     ctx.fillText("best " + (best * 100).toLocaleString(), W - 14, 36);
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
@@ -262,11 +281,11 @@ export function quackLift(engine, goHub) {
     ctx.fillRect(0, H * 0.32, W, H * 0.36);
     ctx.textAlign = "center";
     ctx.fillStyle = color;
-    ctx.font = `bold ${Math.min(W * 0.085, 40)}px ui-monospace, monospace`;
+    ctx.font = `800 ${Math.min(W * 0.085, 40)}px "Orbitron", system-ui, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.fillText(title, W / 2, H * 0.43);
     ctx.fillStyle = "#cfd6e6";
-    ctx.font = `${Math.min(W * 0.038, 16)}px ui-monospace, monospace`;
+    ctx.font = `${Math.min(W * 0.038, 16)}px 'JetBrains Mono', ui-monospace, monospace`;
     ctx.fillText(sub, W / 2, H * 0.52);
     if (foot) {
       ctx.fillStyle = "rgba(255,255,255,0.55)";
