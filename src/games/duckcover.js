@@ -86,8 +86,16 @@ const COL_MAX = 460; // virtual play-column width
 const LABEL_PAD = 9; // px of box padding on each side of a bug label
 const MARGIN = 14;
 const RIPPLE_LIFE = 0.5; // seconds a landing soundwave ring stays alive
+const COMBO_WINDOW = 2.6; // s without a new fix before the chain breaks
+const POINTS_PER_FIX = 100; // base points per bug at x1 -> human-readable "+100" popups
+const PART_GRAV = 900; // px/s^2 particle gravity, lighter than world GRAV so shards float
+const PART_CAP = 90; // hard ceiling on live particles (mobile canvas-2D budget)
+const PART_COLORS = ["#3ad07a", "#9becff", "#ffd23f"]; // fixed-green, ripple-cyan, gold
+const PART_GLYPHS = ["✓", "{}", "+", ";"]; // "bug squashed into clean code" theme
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+// combo chain length -> integer score multiplier. Pure, total over c>=0. Cap x5.
+const comboMult = (c) => (c >= 16 ? 5 : c >= 8 ? 4 : c >= 4 ? 3 : c >= 2 ? 2 : 1);
 
 export function duckCover(engine, goHub, micUi) {
   const isTouch =
@@ -97,6 +105,16 @@ export function duckCover(engine, goHub, micUi) {
 
   // test-only telemetry sink (set by main.js when ?qa=1); inert otherwise
   const QA = typeof window !== "undefined" ? window.__QA__ : null;
+  if (QA) QA.comboMult = comboMult; // expose pure fn for the headless unit assert
+  // test-only autopilot (?qa=1&bot=1): frame-accurate climb so the headless
+  // combo test drives the real fix path deterministically. Pause via
+  // window.__BOT_OFF__ to verify the chain-window expiry. Never on in prod.
+  const BOT =
+    !!QA &&
+    typeof location !== "undefined" &&
+    new URLSearchParams(location.search).has("bot");
+  let botAxis = 0;
+  let botTarget = null;
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
   // floating virtual joystick (touch): grabbed in the bottom-left, steers L/R.
@@ -108,6 +126,14 @@ export function duckCover(engine, goHub, micUi) {
   // juice: landing soundwave rings + screen-shake on a loud squeak
   let ripples = [];
   let shake = 0;
+  // juice-2: combo chain + multiplied points + fix particles / "+N" popups
+  let combo = 0; // current chain length
+  let comboTimer = 0; // s remaining in the current window
+  let lastMult = 1; // last tier reached this chain (tier-up flash detection)
+  let points = 0; // the chased score / highscore metric
+  let maxMult = 1; // peak multiplier this run
+  let parts = []; // particle shards (world-space)
+  let pops = []; // floating "+N" popups + tier-up flash (world-space)
   // jump buffer: an input fired while airborne, remembered for touchdown
   let jumpBuf = 0;
   let jumpBufStrength;
@@ -147,7 +173,7 @@ export function duckCover(engine, goHub, micUi) {
     const { cw, ox } = col(W);
     state = "ready";
     score = 0;
-    best = engine.highscore("duckcover");
+    best = engine.highscore("duckcover-pts");
     cam = 0;
     autoScroll = 20;
     facing = 1;
@@ -155,6 +181,13 @@ export function duckCover(engine, goHub, micUi) {
     joyAxis = 0;
     ripples = [];
     shake = 0;
+    combo = 0;
+    comboTimer = 0;
+    lastMult = 1;
+    points = 0;
+    maxMult = 1;
+    parts = [];
+    pops = [];
     jumpBuf = 0;
     onboard = onboardSeen ? 0 : ONBOARD_DUR;
     const bw = ledgeWidth(null);
@@ -187,6 +220,43 @@ export function duckCover(engine, goHub, micUi) {
       x = ox + MARGIN + Math.random() * span;
     }
     plats.push({ x, y: topY, w, bug, fixed: false });
+  }
+
+  // bug-fix juice: a burst of code-shard particles + a floating "+N" popup.
+  // World-space coords (stored at the ledge) so they scroll + shake with the world.
+  function spawnFixFx(x, y, chain, mult, gained) {
+    const n = 8 + Math.min(chain, 6) * 2; // 8 at chain 1 -> capped 20 at chain >=6
+    if (parts.length + n > PART_CAP)
+      parts.splice(0, parts.length + n - PART_CAP); // trim oldest
+    const hot = mult >= 3;
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1; // up cone
+      const sp = 120 + Math.random() * 200; // 120-320 px/s
+      const glyph = Math.random() < 0.45; // ~45% glyphs, ~55% cheap rects
+      parts.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 60, // extra upward kick
+        t: 0,
+        life: 0.45 + Math.random() * 0.25, // 0.45-0.70 s
+        c: hot
+          ? "#ffd23f"
+          : PART_COLORS[(Math.random() * PART_COLORS.length) | 0],
+        g: glyph ? PART_GLYPHS[(Math.random() * PART_GLYPHS.length) | 0] : null,
+        sz: 9 + ((Math.random() * 5) | 0),
+      });
+    }
+    if (pops.length > 10) pops.shift();
+    pops.push({
+      x,
+      y: y - 8,
+      t: 0,
+      life: 0.85,
+      txt: mult > 1 ? "+" + gained + " x" + mult : "+" + gained,
+      c: mult > 1 ? "#ffd23f" : "#3ad07a",
+      big: false,
+    });
   }
 
   // strength undefined = tap/keyboard (byte-identical to the old fixed jump);
@@ -253,6 +323,9 @@ export function duckCover(engine, goHub, micUi) {
   function update(e, dt) {
     mic.tick(dt); // before the guard: a squeak can start / restart the run
     if (shake > 0) shake = Math.max(0, shake - dt * 38); // decay even on game-over
+    if (QA) QA.state = state; // every frame (incl. ready/over) for the headless test
+    // bot: kickstart / auto-restart from ready+over (unless paused for the idle test)
+    if (BOT && !window.__BOT_OFF__ && state !== "play") jump();
     if (state !== "play") return;
     const W = e.width;
     const H = e.height;
@@ -261,11 +334,37 @@ export function duckCover(engine, goHub, micUi) {
     const right = ox + cw - MARGIN - DUCK_R;
     if (jumpBuf > 0) jumpBuf = Math.max(0, jumpBuf - dt * 1000);
     if (onboard > 0) onboard = Math.max(0, onboard - dt * 1000);
+    if (comboTimer > 0) {
+      comboTimer -= dt;
+      if (comboTimer <= 0) {
+        combo = 0;
+        lastMult = 1;
+        if (QA) QA.comboResets = (QA.comboResets || 0) + 1;
+      }
+    }
 
     // horizontal: keyboard direction, else the joystick axis (analog -1..+1).
     // velocity model = smooth accel toward the target speed + a short coast.
+    if (BOT) {
+      // active (not paused): latch the nearest unfixed ledge above as THIS jump's
+      // target, then launch. Latching avoids retargeting to the next-but-one ledge
+      // mid-flight (out of reach), which would steer the duck off the reachable one.
+      if (duck.grounded && !window.__BOT_OFF__) {
+        let nl = null;
+        for (const p of plats)
+          if (!p.fixed && p.y < duck.y - 1 && (!nl || p.y > nl.y)) nl = p;
+        botTarget = nl;
+        jump();
+      }
+      // steer toward the latched target whether active or paused, so a paused duck
+      // lands and parks (grounded) instead of drifting off — lets the chain-window
+      // expiry fire cleanly for the anti-camp test.
+      const t = botTarget;
+      const dxb = t ? t.x + t.w / 2 - duck.x : 0;
+      botAxis = dxb < -6 ? -1 : dxb > 6 ? 1 : 0;
+    }
     const d = keyDir(e);
-    const axis = d !== 0 ? d : joyId !== null ? joyAxis : 0;
+    const axis = BOT ? botAxis : d !== 0 ? d : joyId !== null ? joyAxis : 0;
     if (axis !== 0) facing = axis < 0 ? -1 : 1;
     duck.vx += (axis * MOVE - duck.vx) * Math.min(1, dt * 16);
     duck.x += duck.vx * dt;
@@ -308,8 +407,28 @@ export function duckCover(engine, goHub, micUi) {
           duck.squash = 0.7;
           if (!p.fixed) {
             p.fixed = true;
-            score++;
-            audio.quack(440 + Math.random() * 80);
+            score++; // UNCHANGED: raw bug count -> difficulty ramp
+            combo++;
+            comboTimer = COMBO_WINDOW;
+            const mult = comboMult(combo);
+            if (mult > maxMult) maxMult = mult;
+            const gained = mult * POINTS_PER_FIX;
+            points += gained;
+            spawnFixFx(duck.x, p.y, combo, mult, gained);
+            if (mult > lastMult) {
+              if (pops.length > 10) pops.shift();
+              pops.push({
+                x: duck.x,
+                y: p.y - 26,
+                t: 0,
+                life: 1.1,
+                txt: "COMBO x" + mult + "!",
+                c: "#ffd23f",
+                big: true,
+              });
+            }
+            lastMult = mult;
+            audio.quack(440 + (mult - 1) * 40 + Math.random() * 80);
           }
           break;
         }
@@ -326,22 +445,54 @@ export function duckCover(engine, goHub, micUi) {
 
     for (const r of ripples) r.t += dt;
     ripples = ripples.filter((r) => r.t < RIPPLE_LIFE);
+    for (const q of parts) {
+      q.vy += PART_GRAV * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+      q.t += dt;
+    }
+    parts = parts.filter((q) => q.t < q.life);
+    for (const u of pops) {
+      u.t += dt;
+      u.y -= 34 * dt;
+    }
+    pops = pops.filter((u) => u.t < u.life);
     if (QA) {
-      QA.fx = QA.fx || { shakePeak: 0, ripplesSeen: 0 };
+      QA.fx = QA.fx || {
+        shakePeak: 0,
+        ripplesSeen: 0,
+        particlesSeen: 0,
+        popsSeen: 0,
+      };
       if (shake > QA.fx.shakePeak) QA.fx.shakePeak = shake;
       if (ripples.length > QA.fx.ripplesSeen) QA.fx.ripplesSeen = ripples.length;
+      if (parts.length > QA.fx.particlesSeen)
+        QA.fx.particlesSeen = parts.length;
+      if (pops.length > QA.fx.popsSeen) QA.fx.popsSeen = pops.length;
+      QA.combo = combo;
+      QA.maxCombo = Math.max(QA.maxCombo || 0, combo);
+      QA.maxMult = Math.max(QA.maxMult || 1, maxMult); // persistent peak (survives reset)
+      QA.points = points;
+      QA.score = score;
+      // nearest unfixed ledge above the duck — lets the headless test autopilot
+      // steer toward a real chain instead of blind-sweeping. Test-only.
+      let nl = null;
+      for (const p of plats)
+        if (!p.fixed && p.y < duck.y - 1 && (!nl || p.y > nl.y)) nl = p;
+      QA.nextLedge = nl ? { x: nl.x + nl.w / 2, y: nl.y } : null;
     }
 
     cam = Math.min(cam, duck.y - H * 0.45);
     cam -= autoScroll * dt;
     autoScroll = 20 + score * 1.5;
+    if (QA) QA.autoScroll = autoScroll;
 
     while (topY > cam - H * 0.3) addPlatformUp();
     plats = plats.filter((p) => p.y < cam + H + 80);
 
     if (duck.y - cam > H + DUCK_R) {
       state = "over";
-      best = engine.highscore("duckcover", score);
+      best = engine.highscore("duckcover-pts", points);
       audio.sadQuack();
     }
   }
@@ -414,6 +565,28 @@ export function duckCover(engine, goHub, micUi) {
     }
     ctx.globalAlpha = 1;
 
+    // bug-fix shards (mixed glyphs + cheap rects), world-space
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const q of parts) {
+      ctx.globalAlpha = clampN(1 - q.t / q.life, 0, 1);
+      ctx.fillStyle = q.c;
+      if (q.g) {
+        ctx.font = q.sz + "px ui-monospace, monospace";
+        ctx.fillText(q.g, q.x, q.y);
+      } else ctx.fillRect(q.x - 1.5, q.y - 1.5, 3, 3);
+    }
+    // floating "+N" popups + COMBO tier-up flash
+    for (const u of pops) {
+      ctx.globalAlpha = clampN(1 - u.t / u.life, 0, 1);
+      ctx.fillStyle = u.c;
+      ctx.font = "bold " + (u.big ? 22 : 15) + "px ui-monospace, monospace";
+      ctx.fillText(u.txt, u.x, u.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle"; // restore for the ledge-label loop next frame
+
     drawDuck(ctx, duck.x, duck.y, DUCK_R * 1.5, {
       squash: duck.squash,
       flip: facing < 0,
@@ -436,12 +609,34 @@ export function duckCover(engine, goHub, micUi) {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("bugs fixed: " + score, ox + 14, 12);
-    ctx.fillStyle = "rgba(223,230,243,0.5)";
-    ctx.font = "13px ui-monospace, monospace";
-    ctx.fillText("best: " + best, ox + 14, 40);
+    // right column: hub link, the points score, and the points record ("best").
+    // best pairs with score (both points-scale) — never under the raw bug count.
     ctx.textAlign = "right";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
+    ctx.font = "13px ui-monospace, monospace";
     ctx.fillText("‹ hub", ox + cw - 14, 14);
+    ctx.fillStyle = "#ffd23f";
+    ctx.font = "bold 15px ui-monospace, monospace";
+    ctx.fillText("score " + points.toLocaleString(), ox + cw - 14, 36);
+    ctx.fillStyle = "rgba(223,230,243,0.5)";
+    ctx.font = "13px ui-monospace, monospace";
+    ctx.fillText("best " + best.toLocaleString(), ox + cw - 14, 54);
+    ctx.textAlign = "left";
+    // combo chip + draining timer bar — only while a chain is live
+    if (combo >= 2) {
+      const m = comboMult(combo);
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = "#ffd23f";
+      ctx.font = "bold 14px ui-monospace, monospace";
+      ctx.fillText("combo x" + m + "  (" + combo + ")", ox + 14, 64);
+      const bw = 120;
+      const frac = clampN(comboTimer / COMBO_WINDOW, 0, 1);
+      ctx.fillStyle = "rgba(255,210,63,0.25)";
+      ctx.fillRect(ox + 14, 70, bw, 3);
+      ctx.fillStyle = "#ffd23f";
+      ctx.fillRect(ox + 14, 70, bw * frac, 3);
+      ctx.textBaseline = "top";
+    }
 
     if (state === "ready") {
       const hint = isTouch
@@ -453,10 +648,10 @@ export function duckCover(engine, goHub, micUi) {
         ctx,
         W,
         H,
-        score + " bugs gefixt",
+        points.toLocaleString() + " Punkte",
         "Have you tried explaining it to the duck?",
         "#ff7b9c",
-        "Tippen für nochmal"
+        score + " bugs · max x" + maxMult + " · Tippen für nochmal"
       );
       drawDuck(ctx, W / 2, H * 0.375, Math.min(W * 0.1, 58), { pose: "sad" });
     }
