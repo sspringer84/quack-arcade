@@ -5,6 +5,8 @@ import { Engine } from "./engine.js";
 import { drawDuck } from "./duck.js";
 import * as audio from "./audio.js";
 import { duckCover } from "./games/duckcover.js";
+import { createFlyers } from "./flyingducks.js";
+import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "./flyervariants.js";
 
 const canvas = document.getElementById("game");
 const engine = new Engine(canvas);
@@ -220,11 +222,13 @@ function launch(key) {
 const hubScene = {
   t: 0,
   cards: [],
+  flyers: createFlyers({ variants: FLYER_VARIANTS, faceLeft: FLYER_FACE_LEFT }),
   enter() {
     this.t = 0;
   },
-  update(_e, dt) {
+  update(e, dt) {
     this.t += dt;
+    if (e.width >= 720) this.flyers.update(dt, e.width, e.height, 9); // desktop ambient
   },
   layout(e) {
     const W = e.width;
@@ -265,6 +269,9 @@ const hubScene = {
       ctx.lineTo(W, y + 0.5);
       ctx.stroke();
     }
+
+    // --- ambient flyers drifting across (desktop), behind title + cards ---
+    if (W >= 720) this.flyers.render(ctx);
 
     // --- hero duck on a neon halo ---
     const bob = Math.sin(t * 2) * 6;

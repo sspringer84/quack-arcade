@@ -15,6 +15,8 @@
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 import { createMic } from "../mic.js";
+import { createFlyers } from "../flyingducks.js";
+import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "../flyervariants.js";
 
 const BUGS = [
   "// TODO: fix later",
@@ -116,6 +118,9 @@ export function duckCover(engine, goHub, micUi) {
     new URLSearchParams(location.search).has("bot");
   let botAxis = 0;
   let botTarget = null;
+
+  // ambient flyers in the desktop side-margins (occluded by the column on mobile)
+  const flyers = createFlyers({ variants: FLYER_VARIANTS, faceLeft: FLYER_FACE_LEFT });
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
   // floating virtual joystick (touch): grabbed in the bottom-left, steers L/R.
@@ -327,6 +332,9 @@ export function duckCover(engine, goHub, micUi) {
     mic.tick(dt); // before the guard: a squeak can start / restart the run
     if (shake > 0) shake = Math.max(0, shake - dt * 38); // decay even on game-over
     if (QA) QA.state = state; // every frame (incl. ready/over) for the headless test
+    // ambient flyers drift even on ready/over; desktop side-margins only
+    if (e.width - Math.min(e.width, COL_MAX) > 140)
+      flyers.update(dt, e.width, e.height, 7);
     // bot: kickstart / auto-restart from ready+over (unless paused for the idle test)
     if (BOT && !window.__BOT_OFF__ && state !== "play") jump();
     if (state !== "play") return;
@@ -518,6 +526,9 @@ export function duckCover(engine, goHub, micUi) {
 
     ctx.fillStyle = "#0b0d12";
     ctx.fillRect(-16, -16, W + 32, H + 32); // margin so shake doesn't bare an edge
+    // ambient flyers behind the column — visible only in the desktop side-margins
+    // (the opaque column fill below covers them; on mobile the column is full-width)
+    if (W - cw > 140) flyers.render(ctx);
     ctx.fillStyle = "#11141c";
     ctx.fillRect(ox, 0, cw, H);
     ctx.strokeStyle = "rgba(120,140,180,0.10)";
@@ -603,6 +614,18 @@ export function duckCover(engine, goHub, micUi) {
     ctx.restore();
     ctx.restore(); // end screen-shake (HUD below stays steady)
 
+    // desktop only: a glowing neon bezel framing the play column like a cabinet
+    // screen (no-op on mobile, where the column fills the canvas).
+    if (W - cw > 140) {
+      ctx.save();
+      ctx.shadowColor = "#36e6ff";
+      ctx.shadowBlur = 16;
+      ctx.strokeStyle = "rgba(54,230,255,0.5)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox - 1, 1, cw + 2, H - 2);
+      ctx.restore();
+    }
+
     // clean top strip: fade out ledges scrolling past so they don't clash
     // with the score/best/hub HUD drawn on top of it.
     const tg = ctx.createLinearGradient(0, 0, 0, 78);
@@ -610,7 +633,7 @@ export function duckCover(engine, goHub, micUi) {
     tg.addColorStop(0.7, "rgba(11,13,18,0.7)");
     tg.addColorStop(1, "rgba(11,13,18,0)");
     ctx.fillStyle = tg;
-    ctx.fillRect(0, 0, W, 78);
+    ctx.fillRect(ox, 0, cw, 78);
 
     ctx.fillStyle = "#dfe6f3";
     ctx.font = "bold 22px ui-monospace, monospace";
