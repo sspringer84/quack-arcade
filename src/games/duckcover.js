@@ -92,6 +92,7 @@ const PART_GRAV = 900; // px/s^2 particle gravity, lighter than world GRAV so sh
 const PART_CAP = 90; // hard ceiling on live particles (mobile canvas-2D budget)
 const PART_COLORS = ["#3ad07a", "#9becff", "#ffd23f"]; // fixed-green, ripple-cyan, gold
 const PART_GLYPHS = ["✓", "{}", "+", ";"]; // "bug squashed into clean code" theme
+const LOVE_CAMEO_DUR = 0.7; // s the heart-eyes duck cameo shows per combo
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 // combo chain length -> integer score multiplier. Pure, total over c>=0. Cap x5.
@@ -134,6 +135,7 @@ export function duckCover(engine, goHub, micUi) {
   let maxMult = 1; // peak multiplier this run
   let parts = []; // particle shards (world-space)
   let pops = []; // floating "+N" popups + tier-up flash (world-space)
+  let loveCameo = 0; // s remaining on the heart-eyes duck combo cameo (HUD-space)
   // jump buffer: an input fired while airborne, remembered for touchdown
   let jumpBuf = 0;
   let jumpBufStrength;
@@ -188,6 +190,7 @@ export function duckCover(engine, goHub, micUi) {
     maxMult = 1;
     parts = [];
     pops = [];
+    loveCameo = 0;
     jumpBuf = 0;
     onboard = onboardSeen ? 0 : ONBOARD_DUR;
     const bw = ledgeWidth(null);
@@ -342,6 +345,7 @@ export function duckCover(engine, goHub, micUi) {
         if (QA) QA.comboResets = (QA.comboResets || 0) + 1;
       }
     }
+    if (loveCameo > 0) loveCameo = Math.max(0, loveCameo - dt);
 
     // horizontal: keyboard direction, else the joystick axis (analog -1..+1).
     // velocity model = smooth accel toward the target speed + a short coast.
@@ -415,6 +419,10 @@ export function duckCover(engine, goHub, micUi) {
             const gained = mult * POINTS_PER_FIX;
             points += gained;
             spawnFixFx(duck.x, p.y, combo, mult, gained);
+            if (mult >= 2) {
+              loveCameo = LOVE_CAMEO_DUR; // heart-eyes duck pops in on every combo
+              if (QA) QA.loveCameos = (QA.loveCameos || 0) + 1;
+            }
             if (mult > lastMult) {
               if (pops.length > 10) pops.shift();
               pops.push({
@@ -636,6 +644,21 @@ export function duckCover(engine, goHub, micUi) {
       ctx.fillStyle = "#ffd23f";
       ctx.fillRect(ox + 14, 70, bw * frac, 3);
       ctx.textBaseline = "top";
+    }
+
+    // heart-eyes duck cameo — pops in from the right edge on every combo fix
+    if (loveCameo > 0 && state === "play") {
+      const p = 1 - loveCameo / LOVE_CAMEO_DUR; // 0..1 over its life
+      const grow = clampN(p / 0.22, 0, 1);
+      const scale = Math.sin((grow * Math.PI) / 2); // easeOutSine 0->1 pop-in
+      const alpha = clampN((1 - p) / 0.35, 0, 1); // fade out over the last 35%
+      const sz = Math.min(W * 0.13, 80) * (0.6 + 0.4 * scale);
+      // drawDuck height = sz*1.7 (square sprite -> half-width ~ sz*0.85); anchor so
+      // it hugs the right edge fully on-screen and grows leftward as it pops in.
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      drawDuck(ctx, W - sz * 0.85 - 10, H * 0.5, sz, { pose: "love" });
+      ctx.restore();
     }
 
     if (state === "ready") {

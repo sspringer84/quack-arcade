@@ -10,6 +10,7 @@ const SPRITES = {
   wave: "assets/duck-wave.png",
   surprised: "assets/duck-surprised.png",
   sleep: "assets/duck-sleep.png",
+  love: "assets/duck-love.png", // heart-eyes — flashed as a combo cameo
 };
 
 const imgs = {};
