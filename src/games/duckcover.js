@@ -15,8 +15,15 @@
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 import { createMic } from "../mic.js";
-import { createFlyers } from "../flyingducks.js";
-import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "../flyervariants.js";
+
+// the neon-arcade art fills the desktop side-margins (cover-fit, occluded by the
+// play column → only the margins show; absent on mobile where there is no margin)
+const sideBg = typeof Image !== "undefined" ? new Image() : null;
+let sideBgReady = false;
+if (sideBg) {
+  sideBg.onload = () => (sideBgReady = true);
+  sideBg.src = "assets/hub-bg.jpg";
+}
 
 const BUGS = [
   "// TODO: fix later",
@@ -118,9 +125,6 @@ export function duckCover(engine, goHub, micUi) {
     new URLSearchParams(location.search).has("bot");
   let botAxis = 0;
   let botTarget = null;
-
-  // ambient flyers in the desktop side-margins (occluded by the column on mobile)
-  const flyers = createFlyers({ variants: FLYER_VARIANTS, faceLeft: FLYER_FACE_LEFT });
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
   // floating virtual joystick (touch): grabbed in the bottom-left, steers L/R.
@@ -332,9 +336,6 @@ export function duckCover(engine, goHub, micUi) {
     mic.tick(dt); // before the guard: a squeak can start / restart the run
     if (shake > 0) shake = Math.max(0, shake - dt * 38); // decay even on game-over
     if (QA) QA.state = state; // every frame (incl. ready/over) for the headless test
-    // ambient flyers drift even on ready/over; desktop side-margins only
-    if (e.width - Math.min(e.width, COL_MAX) > 140)
-      flyers.update(dt, e.width, e.height, 7);
     // bot: kickstart / auto-restart from ready+over (unless paused for the idle test)
     if (BOT && !window.__BOT_OFF__ && state !== "play") jump();
     if (state !== "play") return;
@@ -526,9 +527,16 @@ export function duckCover(engine, goHub, micUi) {
 
     ctx.fillStyle = "#0b0d12";
     ctx.fillRect(-16, -16, W + 32, H + 32); // margin so shake doesn't bare an edge
-    // ambient flyers behind the column — visible only in the desktop side-margins
-    // (the opaque column fill below covers them; on mobile the column is full-width)
-    if (W - cw > 140) flyers.render(ctx);
+    // desktop: neon-arcade art fills the side-margins (the opaque column below
+    // covers the centre, so it only shows left/right; on mobile there's no margin)
+    if (W - cw > 140 && sideBgReady) {
+      const iw = sideBg.naturalWidth, ih = sideBg.naturalHeight;
+      const s = Math.max(W / iw, H / ih) * 1.04; // cover-fit + shake safety overflow
+      const dw = iw * s, dh = ih * s;
+      ctx.drawImage(sideBg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      ctx.fillStyle = "rgba(8,10,16,0.3)"; // light scrim
+      ctx.fillRect(-16, -16, W + 32, H + 32);
+    }
     ctx.fillStyle = "#11141c";
     ctx.fillRect(ox, 0, cw, H);
     ctx.strokeStyle = "rgba(120,140,180,0.10)";

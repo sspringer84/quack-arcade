@@ -11,18 +11,7 @@ const SPRITES = {
   surprised: "assets/duck-surprised.png",
   sleep: "assets/duck-sleep.png",
   love: "assets/duck-love.png", // heart-eyes — flashed as a combo cameo
-  hacker: "assets/duck-hacker.png", // hoodie + code-reflecting shades (dev duck)
-  // ambient flyer fleet (side-view variants drifting across hub + desktop margins)
-  fly_angel: "assets/fly_angel.png",
-  fly_balloon: "assets/fly_balloon.png",
-  fly_cape: "assets/fly_cape.png",
-  fly_cool: "assets/fly_cool.png",
-  fly_jetpack: "assets/fly_jetpack.png",
-  fly_pilot: "assets/fly_pilot.png",
-  fly_rainbow: "assets/fly_rainbow.png",
-  fly_rocket: "assets/fly_rocket.png",
-  fly_shades: "assets/fly_shades.png",
-  fly_star: "assets/fly_star.png",
+  hacker: "assets/duck-hacker.png", // hoodie + code-reflecting shades (hub hero)
 };
 
 const imgs = {};

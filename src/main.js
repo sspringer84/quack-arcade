@@ -6,8 +6,6 @@ import { drawDuck } from "./duck.js";
 import * as audio from "./audio.js";
 import { duckCover } from "./games/duckcover.js";
 import { quackLift } from "./games/quacklift.js";
-import { createFlyers } from "./flyingducks.js";
-import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "./flyervariants.js";
 
 const canvas = document.getElementById("game");
 const engine = new Engine(canvas);
@@ -232,7 +230,6 @@ function launch(key) {
 const hubScene = {
   t: 0,
   cards: [],
-  flyers: createFlyers({ variants: FLYER_VARIANTS, faceLeft: FLYER_FACE_LEFT }),
   enter() {
     this.t = 0;
   },
@@ -259,7 +256,6 @@ const hubScene = {
         m.x = Math.random();
       }
     }
-    if (e.width >= 720) this.flyers.update(dt, e.width, e.height, 9); // desktop ambient
   },
   layout(e) {
     const W = e.width;
@@ -288,10 +284,9 @@ const hubScene = {
       const iw = hubBg.naturalWidth, ih = hubBg.naturalHeight;
       const s = Math.max(W / iw, H / ih); // cover-fit
       const dw = iw * s, dh = ih * s;
-      ctx.save();
-      ctx.globalAlpha = 0.24; // watermark veil
-      ctx.drawImage(hubBg, (W - dw) / 2, (H - dh) / 2, dw, dh);
-      ctx.restore();
+      ctx.drawImage(hubBg, (W - dw) / 2, (H - dh) / 2, dw, dh); // present background
+      ctx.fillStyle = "rgba(6,7,15,0.34)"; // light scrim: keep neon + text readable
+      ctx.fillRect(0, 0, W, H);
     }
     const vg = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.04, W / 2, H * 0.5, H * 0.82);
     vg.addColorStop(0, "rgba(46,22,78,0.55)");
@@ -325,9 +320,6 @@ const hubScene = {
       ctx.restore();
     }
 
-    // --- ambient flyers drifting across (desktop), behind title + cards ---
-    if (W >= 720) this.flyers.render(ctx);
-
     // --- hero duck on a neon halo + Social-Club emblem ---
     const bob = Math.sin(t * 2) * 6;
     // ping-pong so no two adjacent poses are static: ...surprised -> sleep ->
@@ -358,7 +350,8 @@ const hubScene = {
     for (const c of this.cards) {
       const ready = c.g.ready;
       const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 3));
-      ctx.fillStyle = ready ? "rgba(54,230,255,0.07)" : "rgba(255,255,255,0.025)";
+      // semi-solid dark panels so card text stays readable over the present bg
+      ctx.fillStyle = ready ? "rgba(10,18,34,0.62)" : "rgba(8,10,18,0.55)";
       roundRect(ctx, c.x, c.y, c.w, c.h, 12);
       ctx.fill();
       ctx.save();
