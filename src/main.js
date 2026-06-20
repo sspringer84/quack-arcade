@@ -54,8 +54,7 @@ const hubScene = {
     const cw = Math.min(W * 0.86, 460);
     const ch = Math.min(H * 0.12, 92);
     const gap = ch * 0.28;
-    const totalH = GAMES.length * ch + (GAMES.length - 1) * gap;
-    const startY = H * 0.46 - totalH / 2;
+    const startY = H * 0.36; // top-anchored below the title (no overlap)
     this.cards = GAMES.map((g, i) => ({
       g,
       x: (W - cw) / 2,
@@ -75,14 +74,14 @@ const hubScene = {
 
     // title + bobbing duck
     const bob = Math.sin(this.t * 2) * 6;
-    drawDuck(ctx, W * 0.5, H * 0.2 + bob, Math.min(W * 0.1, 64), {
+    drawDuck(ctx, W * 0.5, H * 0.14 + bob, Math.min(W * 0.13, 76), {
       squash: 1 + Math.sin(this.t * 2) * 0.05,
     });
     ctx.fillStyle = "#ffd23f";
     ctx.font = `bold ${Math.min(W * 0.085, 52)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("QUACK ARCADE", W / 2, H * 0.31);
+    ctx.fillText("QUACK ARCADE", W / 2, H * 0.26);
 
     this.layout(e);
     for (const c of this.cards) {
