@@ -38,7 +38,10 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
-const MOVE = 340;
+const MOVE = 340; // keyboard horizontal speed (held)
+const TOUCH_SPEED = 380; // touch: per-tap horizontal flick velocity
+const TOUCH_DEAD = 22; // touch: tap within this of the duck = straight jump
+const TOUCH_COAST = 3.5; // touch: how fast a flick decays back to 0 (low = glides)
 const SPACING = 130; // vertical gap between ledges
 const DUCK_R = 24;
 const COL_MAX = 460; // virtual play-column width
@@ -57,8 +60,8 @@ export function duckCover(engine, goHub, micUi) {
   const QA = typeof window !== "undefined" ? window.__QA__ : null;
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
-  // touch: last-tapped x the duck drifts toward (tap also jumps)
-  let touchTargetX;
+  // touch: a one-shot horizontal flick velocity set on tap, consumed next frame
+  let touchKick = 0;
 
   // the rubber-duck-squeak controller: a squeak calls jump(strength).
   const mic = createMic({
@@ -82,7 +85,7 @@ export function duckCover(engine, goHub, micUi) {
     cam = 0;
     autoScroll = 20;
     facing = 1;
-    touchTargetX = null;
+    touchKick = 0;
     plats = [
       { x: ox + cw / 2 - pw / 2, y: H - 120, w: pw, bug: null, fixed: true },
     ];
@@ -160,20 +163,23 @@ export function duckCover(engine, goHub, micUi) {
     const left = ox + MARGIN + DUCK_R;
     const right = ox + cw - MARGIN - DUCK_R;
 
-    if (touchTargetX !== null) {
-      // touch: drift toward where you last tapped (the tap also jumped)
-      const tx = clampN(touchTargetX, left, right);
-      if (tx < duck.x - 1) facing = -1;
-      else if (tx > duck.x + 1) facing = 1;
-      duck.x += (tx - duck.x) * Math.min(1, dt * 12);
-      duck.vx = 0;
-    } else {
-      // keyboard: velocity model with full air control
-      const d = keyDir(e);
-      if (d !== 0) facing = d;
-      duck.vx += (d * MOVE - duck.vx) * Math.min(1, dt * 16);
-      duck.x += duck.vx * dt;
+    // horizontal: keyboard holds a direction; a touch tap injects a one-shot
+    // flick velocity that then coasts. No homing-to-finger — that pulled the
+    // duck onto the fingertip like a black hole and felt way too hard.
+    const d = keyDir(e);
+    if (touchKick !== 0) {
+      duck.vx = touchKick;
+      touchKick = 0;
     }
+    if (d !== 0) {
+      facing = d;
+      duck.vx += (d * MOVE - duck.vx) * Math.min(1, dt * 16);
+    } else {
+      // no key held: coast and decay (carries the touch flick, eases keyboard)
+      duck.vx += (0 - duck.vx) * Math.min(1, dt * TOUCH_COAST);
+      if (Math.abs(duck.vx) > 5) facing = duck.vx < 0 ? -1 : 1;
+    }
+    duck.x += duck.vx * dt;
     if (duck.x < left) {
       duck.x = left;
       duck.vx = 0;
@@ -181,6 +187,7 @@ export function duckCover(engine, goHub, micUi) {
       duck.x = right;
       duck.vx = 0;
     }
+    if (QA) QA.duck = { x: duck.x, vx: duck.vx };
 
     const prevFeet = duck.y + DUCK_R;
     duck.vy += GRAV * dt;
@@ -294,7 +301,7 @@ export function duckCover(engine, goHub, micUi) {
 
     if (state === "ready") {
       const hint = isTouch
-        ? "Tippen = Sprung + dorthin lenken"
+        ? "Tippen = Sprung · Seite antippen lenkt dorthin"
         : "◀ ▶ / A D bewegen · Leertaste = Sprung";
       banner(ctx, W, H, "DUCK & COVER", hint, "#ffd23f");
     } else if (state === "over") {
@@ -337,8 +344,10 @@ export function duckCover(engine, goHub, micUi) {
       return;
     }
     if (ev && ev.pointerType === "touch") {
-      // tap = jump + steer toward the tapped x
-      touchTargetX = relX(e, ev);
+      // tap = jump + a flick toward the side of the duck you tapped (no homing)
+      const dx = relX(e, ev) - duck.x;
+      touchKick =
+        Math.abs(dx) < TOUCH_DEAD ? 0 : (dx < 0 ? -1 : 1) * TOUCH_SPEED;
       jump();
       return;
     }
