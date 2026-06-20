@@ -24,16 +24,19 @@ if (typeof Image !== "undefined") {
 }
 
 const SPRITE_K = 1.7; // sprite height per unit of `size`
+// sprites whose source art faces LEFT (opposite the classic) — flip is inverted
+const SPRITE_FLIP_INVERT = new Set(["jump"]);
 
 export function drawDuck(ctx, x, y, size = 40, opts = {}) {
   const { squash = 1, rot = 0, flip = false, pose = "default" } = opts;
-  const sx = flip ? -1 : 1;
   const vy = squash;
   const vx = 1 / Math.sqrt(squash);
 
   const key = ready[pose] ? pose : ready.default ? "default" : null;
   if (key) {
     const im = imgs[key];
+    const sprFlip = SPRITE_FLIP_INVERT.has(key) ? !flip : flip;
+    const sx = sprFlip ? -1 : 1;
     const h = size * SPRITE_K;
     const w = h * (im.naturalWidth / im.naturalHeight);
     ctx.save();
@@ -44,6 +47,8 @@ export function drawDuck(ctx, x, y, size = 40, opts = {}) {
     ctx.restore();
     return;
   }
+
+  const sx = flip ? -1 : 1;
 
   // --- canvas fallback ---
   ctx.save();
