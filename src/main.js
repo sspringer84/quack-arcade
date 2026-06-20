@@ -12,6 +12,14 @@ import { FLYER_VARIANTS, FLYER_FACE_LEFT } from "./flyervariants.js";
 const canvas = document.getElementById("game");
 const engine = new Engine(canvas);
 
+// faint neon-arcade veil behind the hub (cover-fit, low opacity = watermark)
+const hubBg = typeof Image !== "undefined" ? new Image() : null;
+let hubBgReady = false;
+if (hubBg) {
+  hubBg.onload = () => (hubBgReady = true);
+  hubBg.src = "assets/hub-bg.jpg";
+}
+
 // test-only telemetry, opt-in via ?qa=1 so _verify/ can read jump + mic events
 const QA =
   typeof location !== "undefined" &&
@@ -273,9 +281,18 @@ const hubScene = {
     const H = e.height;
     const t = this.t;
 
-    // --- CRT arcade background: deep space + magenta vignette ---
+    // --- CRT arcade background: deep space + faint neon veil + magenta vignette ---
     ctx.fillStyle = "#06070f";
     ctx.fillRect(0, 0, W, H);
+    if (hubBgReady) {
+      const iw = hubBg.naturalWidth, ih = hubBg.naturalHeight;
+      const s = Math.max(W / iw, H / ih); // cover-fit
+      const dw = iw * s, dh = ih * s;
+      ctx.save();
+      ctx.globalAlpha = 0.24; // watermark veil
+      ctx.drawImage(hubBg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      ctx.restore();
+    }
     const vg = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.04, W / 2, H * 0.5, H * 0.82);
     vg.addColorStop(0, "rgba(46,22,78,0.55)");
     vg.addColorStop(1, "rgba(0,0,0,0)");
