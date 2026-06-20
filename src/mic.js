@@ -37,9 +37,9 @@ const lsSet = (k, v) => {
 export function createMic({ onJump, onMeter, onState } = {}) {
   // --- tunables (see concrete_params) ---
   const HP = 300, LP = 2000, FFT = 1024;
-  const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.05;
+  const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.04;
   const TAU_UP = 3.0, TAU_DOWN = 0.4; // floor rise slow, fall fast (seconds)
-  const ABS_MIN_LEVEL = 0.18, ATTACK_FRAMES = 2;
+  const ABS_MIN_LEVEL = 0.1, ATTACK_FRAMES = 2;
   const PEAK_WINDOW_MS = 180, REFRACTORY_MS = 200;
   const GAMMA = 0.7;
   let SPAN = 0.35; // peak->strength span, auto-ranges per session
@@ -48,7 +48,7 @@ export function createMic({ onJump, onMeter, onState } = {}) {
   const clampSens = (v) => {
     // null/undefined/"" (no stored pref) -> 0.5 default; Number(null) is 0, so
     // an explicit empty check is required or first-time users get sens=0.
-    if (v === null || v === undefined || v === "") return 0.5;
+    if (v === null || v === undefined || v === "") return 0.6;
     const n = Number(v);
     return isFinite(n) ? clamp(n, 0, 1) : 0.5;
   };
@@ -221,9 +221,9 @@ export function createMic({ onJump, onMeter, onState } = {}) {
     }
 
     const floorLevel = toLevel(floor);
-    const margin = lerp(0.42, 0.12, sens);
+    const margin = lerp(0.3, 0.05, sens); // easier to trigger, esp. at high sens
     const triggerLevel = Math.max(floorLevel + margin, ABS_MIN_LEVEL);
-    const releaseLevel = floorLevel + margin * 0.6; // hysteresis
+    const releaseLevel = floorLevel + margin * 0.5; // hysteresis
     const hotNow = level > triggerLevel && selfMuteMs <= 0 && sawValidFrame;
 
     // adaptive floor: rise slow, fall fast, frozen while a real squeak is hot

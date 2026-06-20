@@ -356,10 +356,10 @@ export function duckCover(engine, goHub, micUi) {
       for (let ring = 0; ring < 2; ring++) {
         const kk = k - ring * 0.16;
         if (kk < 0) continue;
-        ctx.globalAlpha = (1 - kk) * 0.85 * r.mag;
-        ctx.lineWidth = 3.5 - ring * 1.5;
+        ctx.globalAlpha = (1 - kk) * 0.7 * r.mag;
+        ctx.lineWidth = 2.5 - ring;
         ctx.beginPath();
-        ctx.arc(r.x, r.y, 6 + kk * (58 + r.mag * 40), 0, Math.PI * 2);
+        ctx.arc(r.x, r.y, 5 + kk * (26 + r.mag * 22), 0, Math.PI * 2);
         ctx.stroke();
       }
     }
