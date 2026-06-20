@@ -74,8 +74,11 @@ const hubScene = {
 
     // title + bobbing duck
     const bob = Math.sin(this.t * 2) * 6;
+    const POSES = ["default", "wave", "surprised", "sleep"];
+    const pose = POSES[Math.floor(this.t / 2.6) % POSES.length];
     drawDuck(ctx, W * 0.5, H * 0.14 + bob, Math.min(W * 0.13, 76), {
       squash: 1 + Math.sin(this.t * 2) * 0.05,
+      pose,
     });
     ctx.fillStyle = "#ffd23f";
     ctx.font = `bold ${Math.min(W * 0.085, 52)}px system-ui, sans-serif`;

@@ -7,6 +7,9 @@ const SPRITES = {
   default: "assets/duck.png",
   jump: "assets/duck-jump.png",
   sad: "assets/duck-sad.png",
+  wave: "assets/duck-wave.png",
+  surprised: "assets/duck-surprised.png",
+  sleep: "assets/duck-sleep.png",
 };
 
 const imgs = {};
