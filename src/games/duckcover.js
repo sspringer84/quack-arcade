@@ -4,8 +4,10 @@
 // ledges; landing on one "fixes" the bug (+1). The view creeps upward on its
 // own — fall off the bottom and the run ends with the classic line:
 // "Have you tried explaining it to the duck?"
-// Controls: ◀ ▶ / A D move · Space / W / ↑ / tap = jump (×2). Touch: bottom
-// corners move, tap elsewhere to jump.
+//
+// Play happens inside a FIXED-WIDTH virtual column (<= COL_MAX) centred on the
+// canvas, so difficulty is identical on a phone and a wide desktop. Ledge width
+// is a fraction of the column, not absolute pixels.
 
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
@@ -28,15 +30,15 @@ const BUGS = [
   "merge conflict",
 ];
 
-// physics (px / s). One jump clears a gap comfortably; the double jump is for
-// recovery and reaching offset ledges.
 const GRAV = 2600;
 const JUMP = 1040;
 const MAX_JUMPS = 2;
-const MOVE = 340; // horizontal top speed
-const SPACING = 120; // vertical gap between ledges
-const PLAT_W = 150;
-const DUCK_R = 26;
+const MOVE = 340;
+const SPACING = 116; // vertical gap between ledges
+const DUCK_R = 24;
+const COL_MAX = 460; // virtual play-column width
+const PLAT_FRAC = 0.3; // ledge width as fraction of the column
+const MARGIN = 14;
 
 export function duckCover(engine, goHub) {
   const isTouch =
@@ -46,9 +48,16 @@ export function duckCover(engine, goHub) {
 
   let state, duck, plats, cam, score, best, topY, autoScroll, touchDir, facing;
 
+  // the centred virtual column for the current canvas width
+  function col(W) {
+    const cw = Math.min(W, COL_MAX);
+    return { cw, ox: (W - cw) / 2, pw: Math.round(Math.min(W, COL_MAX) * PLAT_FRAC) };
+  }
+
   function reset() {
     const W = engine.width;
     const H = engine.height;
+    const { cw, ox, pw } = col(W);
     state = "ready";
     score = 0;
     best = engine.highscore("duckcover");
@@ -57,10 +66,10 @@ export function duckCover(engine, goHub) {
     touchDir = 0;
     facing = 1;
     plats = [
-      { x: W / 2 - PLAT_W / 2, y: H - 120, w: PLAT_W, bug: null, fixed: true },
+      { x: ox + cw / 2 - pw / 2, y: H - 120, w: pw, bug: null, fixed: true },
     ];
     duck = {
-      x: W / 2,
+      x: ox + cw / 2,
       y: H - 120 - DUCK_R,
       vx: 0,
       vy: 0,
@@ -73,13 +82,13 @@ export function duckCover(engine, goHub) {
   }
 
   function addPlatformUp() {
-    const W = engine.width;
+    const { cw, ox, pw } = col(engine.width);
     topY -= SPACING;
-    const x = 16 + Math.random() * (W - 32 - PLAT_W);
+    const x = ox + MARGIN + Math.random() * (cw - 2 * MARGIN - pw);
     plats.push({
       x,
       y: topY,
-      w: PLAT_W,
+      w: pw,
       bug: BUGS[(Math.random() * BUGS.length) | 0],
       fixed: false,
     });
@@ -113,28 +122,27 @@ export function duckCover(engine, goHub) {
     if (state !== "play") return;
     const W = e.width;
     const H = e.height;
+    const { cw, ox } = col(W);
 
-    // horizontal: full air + ground control, smoothed
     const dir = moveInput(e);
     if (dir !== 0) facing = dir;
-    const targetVx = dir * MOVE;
-    duck.vx += (targetVx - duck.vx) * Math.min(1, dt * 16);
+    duck.vx += (dir * MOVE - duck.vx) * Math.min(1, dt * 16);
     duck.x += duck.vx * dt;
-    if (duck.x < 16 + DUCK_R) {
-      duck.x = 16 + DUCK_R;
+    const left = ox + MARGIN + DUCK_R;
+    const right = ox + cw - MARGIN - DUCK_R;
+    if (duck.x < left) {
+      duck.x = left;
       duck.vx = 0;
-    } else if (duck.x > W - 16 - DUCK_R) {
-      duck.x = W - 16 - DUCK_R;
+    } else if (duck.x > right) {
+      duck.x = right;
       duck.vx = 0;
     }
 
-    // gravity
     const prevFeet = duck.y + DUCK_R;
     duck.vy += GRAV * dt;
     duck.y += duck.vy * dt;
     const feet = duck.y + DUCK_R;
 
-    // landing only while falling, feet crossing a ledge top within its x-span
     duck.grounded = false;
     if (duck.vy > 0) {
       for (const p of plats) {
@@ -161,7 +169,6 @@ export function duckCover(engine, goHub) {
 
     duck.squash += (1 - duck.squash) * Math.min(1, dt * 12);
 
-    // camera follows up + always creeps up; meaner with score
     cam = Math.min(cam, duck.y - H * 0.45);
     cam -= autoScroll * dt;
     autoScroll = 18 + score * 1.5;
@@ -179,12 +186,23 @@ export function duckCover(engine, goHub) {
   function render(e, ctx) {
     const W = e.width;
     const H = e.height;
+    const { cw, ox } = col(W);
 
-    ctx.fillStyle = "#11141c";
+    // outside column = darker; column = IDE pane
+    ctx.fillStyle = "#0b0d12";
     ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(120,140,180,0.06)";
+    ctx.fillStyle = "#11141c";
+    ctx.fillRect(ox, 0, cw, H);
+    ctx.strokeStyle = "rgba(120,140,180,0.10)";
     ctx.lineWidth = 1;
-    for (let gx = 40; gx < W; gx += 80) {
+    ctx.beginPath();
+    ctx.moveTo(ox + 0.5, 0);
+    ctx.lineTo(ox + 0.5, H);
+    ctx.moveTo(ox + cw - 0.5, 0);
+    ctx.lineTo(ox + cw - 0.5, H);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(120,140,180,0.05)";
+    for (let gx = ox + 40; gx < ox + cw; gx += 80) {
       ctx.beginPath();
       ctx.moveTo(gx, 0);
       ctx.lineTo(gx, H);
@@ -193,7 +211,6 @@ export function duckCover(engine, goHub) {
 
     ctx.save();
     ctx.translate(0, -cam);
-
     ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
@@ -213,12 +230,10 @@ export function duckCover(engine, goHub) {
         ctx.stroke();
       }
     }
-
     drawDuck(ctx, duck.x, duck.y, DUCK_R * 1.5, {
       squash: duck.squash,
       flip: facing < 0,
     });
-
     ctx.restore();
 
     // HUD
@@ -226,15 +241,15 @@ export function duckCover(engine, goHub) {
     ctx.font = "bold 22px ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("bugs fixed: " + score, 14, 12);
+    ctx.fillText("bugs fixed: " + score, ox + 14, 12);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
     ctx.font = "13px ui-monospace, monospace";
-    ctx.fillText("best: " + best, 14, 40);
+    ctx.fillText("best: " + best, ox + 14, 40);
     ctx.textAlign = "right";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
-    ctx.fillText("‹ hub", W - 14, 14);
+    ctx.fillText("‹ hub", ox + cw - 14, 14);
 
-    if (isTouch && state === "play") drawTouchControls(ctx, W, H);
+    if (isTouch && state === "play") drawTouchControls(ctx, ox, cw, H);
 
     if (state === "ready") {
       const hint = isTouch
@@ -254,23 +269,22 @@ export function duckCover(engine, goHub) {
     }
   }
 
-  function drawTouchControls(ctx, W, H) {
-    const r = 34;
+  function drawTouchControls(ctx, ox, cw, H) {
     const y = H - 54;
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.45;
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     ctx.beginPath();
-    ctx.arc(48, y, r, 0, Math.PI * 2);
+    ctx.arc(ox + 48, y, 34, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(W - 48, y, r, 0, Math.PI * 2);
+    ctx.arc(ox + cw - 48, y, 34, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#dfe6f3";
     ctx.font = "26px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("◀", 48, y);
-    ctx.fillText("▶", W - 48, y);
+    ctx.fillText("◀", ox + 48, y);
+    ctx.fillText("▶", ox + cw - 48, y);
     ctx.globalAlpha = 1;
   }
 
@@ -291,26 +305,25 @@ export function duckCover(engine, goHub) {
     }
   }
 
-  function zoneAt(e, ev) {
-    // returns 'left' | 'right' | null for touch move zones (bottom corners)
+  function zoneAt(e) {
     if (!isTouch || state !== "play") return null;
+    const { cw, ox } = col(e.width);
     const p = e.input.pointer;
-    const y = e.height - 54;
-    if (p.y > y - 50) {
-      if (p.x < e.width * 0.4) return "left";
-      if (p.x > e.width * 0.6) return "right";
+    if (p.y > e.height - 104) {
+      if (p.x < ox + cw * 0.4) return "left";
+      if (p.x > ox + cw * 0.6) return "right";
     }
     return null;
   }
 
   function onPress(e, ev) {
-    // top-right "hub" tap returns to menu
+    const { cw, ox } = col(e.width);
     const p = e.input.pointer;
-    if (ev && ev.clientX !== undefined && p.x > e.width - 70 && p.y < 40) {
+    if (ev && ev.clientX !== undefined && p.x > ox + cw - 70 && p.y < 40) {
       goHub();
       return;
     }
-    const z = zoneAt(e, ev);
+    const z = zoneAt(e);
     if (z) {
       touchDir = z === "left" ? -1 : 1;
       return;
