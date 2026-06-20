@@ -6,7 +6,7 @@
 //
 // Controls:
 //   Desktop: ◀ ▶ / A D move · Space / W / ↑ / click = jump (single jump)
-//   Touch:   floating joystick (bottom-left) steers L/R · tap elsewhere = jump
+//   Touch:   floating joystick (bottom-right) steers L/R · tap elsewhere = jump
 //            (a rubber-duck squeak into the mic also jumps — see mic.js)
 //
 // Play happens inside a fixed-width virtual column (<= COL_MAX) centred on the
@@ -290,6 +290,15 @@ export function duckCover(engine, goHub, micUi) {
     });
     ctx.restore();
 
+    // clean top strip: fade out ledges scrolling past so they don't clash
+    // with the score/best/hub HUD drawn on top of it.
+    const tg = ctx.createLinearGradient(0, 0, 0, 78);
+    tg.addColorStop(0, "rgba(11,13,18,0.95)");
+    tg.addColorStop(0.7, "rgba(11,13,18,0.7)");
+    tg.addColorStop(1, "rgba(11,13,18,0)");
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, W, 78);
+
     ctx.fillStyle = "#dfe6f3";
     ctx.font = "bold 22px ui-monospace, monospace";
     ctx.textAlign = "left";
@@ -304,7 +313,7 @@ export function duckCover(engine, goHub, micUi) {
 
     if (state === "ready") {
       const hint = isTouch
-        ? "Joystick unten links lenkt · Tippen = Sprung"
+        ? "Joystick unten rechts lenkt · Tippen = Sprung"
         : "◀ ▶ / A D bewegen · Leertaste = Sprung";
       banner(ctx, W, H, "DUCK & COVER", hint, "#ffd23f");
     } else if (state === "over") {
@@ -321,13 +330,13 @@ export function duckCover(engine, goHub, micUi) {
     }
 
     if (isTouch && (state === "play" || state === "ready"))
-      drawJoystick(ctx, H);
+      drawJoystick(ctx, W, H);
   }
 
-  // floating thumb-stick, bottom-left. Faint at rest, brighter while grabbed.
-  function drawJoystick(ctx, H) {
+  // floating thumb-stick, bottom-right. Faint at rest, brighter while grabbed.
+  function drawJoystick(ctx, W, H) {
     const active = joyId !== null;
-    const cx = active ? joyCx : 84;
+    const cx = active ? joyCx : W - 84;
     const cy = active ? joyCy : H - 96;
     ctx.save();
     ctx.globalAlpha = active ? 0.62 : 0.3;
@@ -376,12 +385,12 @@ export function duckCover(engine, goHub, micUi) {
       goHub();
       return;
     }
-    // during play, a touch starting in the bottom-left grabs the floating
+    // during play, a touch starting in the bottom-right grabs the floating
     // joystick (steers); every other touch — and any tap — is a jump.
     if (ev && ev.pointerType === "touch" && state === "play") {
       const rx = relX(e, ev);
       const ry = relY(e, ev);
-      if (rx < e.width * 0.45 && ry > e.height * 0.4) {
+      if (rx > e.width * 0.5 && ry > e.height * 0.45) {
         joyId = ev.pointerId;
         joyCx = rx;
         joyCy = ry;
