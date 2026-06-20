@@ -2,16 +2,18 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Building Challenge - Dein Minigame</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Quack Arcade 🦆</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main>
-      <h1>Dein Minigame</h1>
-      <canvas id="game" width="800" height="600"></canvas>
-      <p id="hint">Dein Spiel startet in <code>game.js</code>. Viel Erfolg!</p>
-    </main>
-    <script src="game.js"></script>
+    <div id="app">
+      <canvas id="game"></canvas>
+    </div>
+    <button id="mute" aria-label="Ton an/aus" title="Ton an/aus">🔊</button>
+    <script type="module" src="src/main.js"></script>
   </body>
 </html>
