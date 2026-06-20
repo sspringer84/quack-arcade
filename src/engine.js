@@ -26,7 +26,23 @@ export class Engine {
   }
 
   _isActionKey(code) {
-    return code === "Space" || code === "Enter" || code === "ArrowUp";
+    return (
+      code === "Space" ||
+      code === "Enter" ||
+      code === "ArrowUp" ||
+      code === "KeyW"
+    );
+  }
+
+  _isMoveKey(code) {
+    return (
+      code === "ArrowLeft" ||
+      code === "ArrowRight" ||
+      code === "ArrowDown" ||
+      code === "KeyA" ||
+      code === "KeyD" ||
+      code === "KeyS"
+    );
   }
 
   _bindEvents() {
@@ -34,18 +50,17 @@ export class Engine {
 
     window.addEventListener("keydown", (e) => {
       this.input.keys.add(e.code);
-      if (e.repeat) return;
-      if (this._isActionKey(e.code)) {
+      // stop the page scrolling on game keys
+      if (this._isActionKey(e.code) || this._isMoveKey(e.code))
         e.preventDefault();
-        this._press(e);
-      }
+      if (e.repeat) return;
+      if (this._isActionKey(e.code)) this._press(e);
     });
     window.addEventListener("keyup", (e) => {
       this.input.keys.delete(e.code);
-      if (this._isActionKey(e.code)) {
+      if (this._isActionKey(e.code) || this._isMoveKey(e.code))
         e.preventDefault();
-        this._release(e);
-      }
+      if (this._isActionKey(e.code)) this._release(e);
     });
 
     const c = this.canvas;
