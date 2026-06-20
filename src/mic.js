@@ -37,12 +37,15 @@ const lsSet = (k, v) => {
 export function createMic({ onJump, onMeter, onState } = {}) {
   // --- tunables (see concrete_params) ---
   const HP = 300, LP = 2000, FFT = 1024;
-  const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.04;
+  const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.03;
   const TAU_UP = 3.0, TAU_DOWN = 0.4; // floor rise slow, fall fast (seconds)
   const ABS_MIN_LEVEL = 0.1, ATTACK_FRAMES = 2;
   const PEAK_WINDOW_MS = 180, REFRACTORY_MS = 200;
   const GAMMA = 0.7;
-  let SPAN = 0.35; // peak->strength span, auto-ranges per session
+  // jump HEIGHT is decoupled from the activation threshold: it scales with how
+  // far the squeak rose ABOVE the ambient floor, over this span. So lowering
+  // the trigger (easier to jump) does not inflate every jump to max height.
+  const STR_SPAN = 0.42;
 
   const toLevel = (x) => clamp((20 * Math.log10(x + 1e-7) + 70) / 70, 0, 1);
   const clampSens = (v) => {
@@ -60,7 +63,7 @@ export function createMic({ onJump, onMeter, onState } = {}) {
   // --- detector state ---
   let enabled = false;
   let sens = clampSens(lsGet("quack:micsens"));
-  let floor = FLOOR_MIN, sessionMaxExcess = 0;
+  let floor = FLOOR_MIN;
   let calibMs = 0, calibSamples = [];
   let phase = "idle", risingN = 0, peakLevel = 0, activeMs = 0;
   let refractoryMs = 0, selfMuteMs = 0, sawValidFrame = false;
@@ -142,8 +145,6 @@ export function createMic({ onJump, onMeter, onState } = {}) {
 
     // reset detector for a fresh room
     floor = FLOOR_MIN;
-    sessionMaxExcess = 0;
-    SPAN = 0.35;
     phase = "idle";
     risingN = 0;
     peakLevel = 0;
@@ -214,14 +215,14 @@ export function createMic({ onJump, onMeter, onState } = {}) {
           FLOOR_MIN,
           FLOOR_MAX
         );
-        onState && onState(floor > 0.03 ? "noisy" : "ready");
+        onState && onState(floor > 0.022 ? "noisy" : "ready");
       }
-      onMeter && onMeter({ level, trigger: 0, hot: false });
+      onMeter && onMeter({ level, trigger: 0, hot: false, floor: 0 });
       return;
     }
 
     const floorLevel = toLevel(floor);
-    const margin = lerp(0.3, 0.05, sens); // easier to trigger, esp. at high sens
+    const margin = lerp(0.22, 0.03, sens); // easier to trigger, esp. at high sens
     const triggerLevel = Math.max(floorLevel + margin, ABS_MIN_LEVEL);
     const releaseLevel = floorLevel + margin * 0.5; // hysteresis
     const hotNow = level > triggerLevel && selfMuteMs <= 0 && sawValidFrame;
@@ -253,21 +254,19 @@ export function createMic({ onJump, onMeter, onState } = {}) {
       peakLevel = Math.max(peakLevel, level);
       activeMs += dtMs;
       if (level < releaseLevel || activeMs >= PEAK_WINDOW_MS) {
-        fire(triggerLevel);
+        fire(floorLevel);
         phase = "cooldown";
         refractoryMs = REFRACTORY_MS;
       }
     } else if (phase === "cooldown") {
       if (level < releaseLevel && refractoryMs <= 0) phase = "idle";
     }
-    onMeter && onMeter({ level, trigger: triggerLevel, hot: hotNow });
+    onMeter && onMeter({ level, trigger: triggerLevel, hot: hotNow, floor: floorLevel });
   }
 
-  function fire(triggerLevel) {
-    const excess = Math.max(peakLevel - triggerLevel, 0);
-    sessionMaxExcess = Math.max(sessionMaxExcess, excess);
-    SPAN = clamp(sessionMaxExcess * 0.9, 0.2, 0.45);
-    let strength = clamp(excess / SPAN, 0, 1);
+  function fire(floorLevel) {
+    const above = Math.max(peakLevel - floorLevel, 0); // rise over ambient
+    let strength = clamp(above / STR_SPAN, 0, 1);
     strength = Math.pow(strength, GAMMA); // gamma<1: generous mid-high
     onJump && onJump(strength);
   }

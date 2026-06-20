@@ -14,6 +14,10 @@ const QA =
   typeof location !== "undefined" &&
   new URLSearchParams(location.search).has("qa");
 if (QA) window.__QA__ = { jumps: [], states: [] };
+// mic calibration readout: open with ?cal=1 to see live floor/level/trigger
+const CAL =
+  typeof location !== "undefined" &&
+  new URLSearchParams(location.search).has("cal");
 
 // Unlock audio on the first user gesture anywhere (autoplay policy).
 const unlockOnce = () => {
@@ -44,6 +48,7 @@ const MIC_SUPPORTED = !!(
 );
 
 let activeMic = null;
+let micPeak = 0; // decaying peak-hold of the input level, for the ?cal readout
 let micHintDone = false;
 try {
   micHintDone = !!localStorage.getItem("quack:micseen");
@@ -153,7 +158,7 @@ const micUi = {
     audio.onAudioOut(null);
     activeMic = null;
   },
-  meter({ level, trigger, hot }) {
+  meter({ level, trigger, hot, floor }) {
     if (!micFill) return;
     micFill.style.width = level * 100 + "%";
     micFill.classList.toggle("hot", !!hot);
@@ -166,6 +171,14 @@ const micUi = {
         /* ignore */
       }
       setStatus("Audio bleibt im Browser. Nichts wird gesendet.");
+    }
+    if (CAL) {
+      micPeak = Math.max(level, micPeak * 0.96); // slow-decay peak hold
+      const pct = (x) => ((x || 0) * 100) | 0;
+      setStatus(
+        "floor " + pct(floor) + " · in " + pct(level) +
+          " · trig " + pct(trigger) + " · peak " + pct(micPeak)
+      );
     }
   },
   state: renderMicState,
