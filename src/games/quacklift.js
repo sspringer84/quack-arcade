@@ -29,9 +29,9 @@ const TILE_H = 192; // on-screen height of one texture tile (asset shipped 58x19
 const THEME_DEFS = [
   { name: "magenta-conduit", color: "#ff4fa3", fill: "rgba(255,79,163,0.16)" },
   { name: "cyan-circuit", color: "#36e6ff", fill: "rgba(54,230,255,0.16)" },
-  { name: "gold-rail", color: "#ffd23f", fill: "rgba(255,210,63,0.16)" },
   { name: "violet-laser", color: "#9b5cff", fill: "rgba(155,92,255,0.16)" },
-  { name: "emerald-reed", color: "#2bd6a0", fill: "rgba(43,214,160,0.16)" },
+  // gold-rail / emerald-reed generated + in the pool, held back (Sebastian's pick:
+  // the three crispest beams). Re-add a {name,color,fill} line to bring one back.
 ];
 const THEMES = THEME_DEFS.map((d) => {
   const th = { ...d, img: null, ready: false };
