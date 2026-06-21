@@ -28,15 +28,23 @@ const DAMP = 14; // buoyancy damping (nearer critical -> crisp dips, less oversh
 const KR = 11; // duckling pickup radius
 const K_PROB = 0.8; // chance a wall also spawns a duckling
 const K_OFF_MILD = 0.12; // mild offset from gap centre (fraction of band) — in-gap, collectible
-const K_OFF_RISK = 0.2; // danger offset (fraction of band) — off the safe line, recover-or-die
+const K_OFF_RISK = 0.17; // danger offset (fraction of band) — off the safe line, recover-or-die
 const MULT_MAX = 9;
 const WALL_W = 58; // neon wall thickness
 const SCROLL0 = 140; // initial scroll speed (px/s)
 const SCROLL_RAMP = 4; // +px/s of scroll per wall cleared
 const GAP0 = 0.34; // initial gap height (fraction of playable band)
-const GAP_MIN = 0.22; // gap shrinks toward this with score
+const GAP_MIN = 0.23; // gap shrinks toward this with score
 const SPAWN_GAP = 300; // horizontal spacing between walls (px)
 const STEP = SPAWN_GAP + WALL_W; // constant horizontal beat between walls (duck = phantom wall 0)
+
+// --- polish tuning knobs ---
+const LEAN_K = 0.0011, LEAN_MAX = 0.26; // duck tilt from vertical speed (feel)
+const NEAR_MISS_PX = 16; // clearance to a gap edge that counts as a skillful near-miss
+const TRAIL_MULT = 4; // combo at which the duck grows a cyan greed-trail
+const DEATH_DUR = 0.55; // s of sink animation before the game-over banner
+const DRIFT_SCORE = 8; // walls may start drifting their gap only after this many cleared
+const DRIFT_SPD = 1.6; // rad/s of the gap-drift oscillation
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -55,6 +63,8 @@ export function quackLift(engine, goHub) {
   let state, duck, water, walls, scroll, score, best, holding, t;
   // second axis: ducklings + greed combo (reset only on death)
   let kueken, mult, pts, collected, particles, popups, flash;
+  // polish fx state
+  let wakes, bubbles, rings, trail, deathT, deathFlash, deathRot, popT, wakeAcc, bubbleAcc;
 
   // playable vertical band (water clamps here; gaps spawn within it)
   function band(H) {
@@ -80,12 +90,35 @@ export function quackLift(engine, goHub) {
     particles = [];
     popups = [];
     flash = 0;
+    wakes = [];
+    bubbles = [];
+    rings = [];
+    trail = [];
+    deathT = 0;
+    deathFlash = 0;
+    deathRot = 0;
+    popT = 0;
+    wakeAcc = 0;
+    bubbleAcc = 0;
   }
 
   function gapH(H) {
     const { top, bot } = band(H);
     const frac = Math.max(GAP_MIN, GAP0 - score * 0.004);
     return (bot - top) * frac;
+  }
+
+  // wall visual style — bars dominate early, stalactite/gate get likelier with
+  // score. The opener (no prev) is always a plain bar so the first gate reads clean.
+  function chooseStyle(prev) {
+    if (!prev) return "bar";
+    // __STYLE_FORCE__ is a headless-test hook (dead in prod) to exercise variety
+    const force = typeof window !== "undefined" && window.__STYLE_FORCE__;
+    const variety = force ? 0.9 : clampN(score * 0.02, 0, 0.55);
+    const r = Math.random();
+    if (r < variety * 0.5) return "stalactite";
+    if (r < variety) return "gate";
+    return "bar";
   }
 
   function spawnWall(W, H) {
@@ -105,9 +138,33 @@ export function quackLift(engine, goHub) {
     // so the run-up is the same ~2.5s on phone and desktop instead of ~8s on a wide
     // screen. Treats the duck as a phantom wall zero; later walls keep the same beat.
     const x = (prev ? prev.x : duckX(W)) + STEP;
-    const wall = { x, gapY, gh, passed: false };
+    const wall = {
+      x, gapY, gh, passed: false,
+      style: chooseStyle(prev),
+      baseGapY: gapY, driftAmp: 0, driftPhase: 0,
+      nearGlow: 0, minMargin: undefined,
+    };
+    // drifting gap: only past a score threshold, only when the gap is roomy.
+    // __DRIFT_SCORE__/__DRIFT_FORCE__ are headless-test hooks (dead in prod).
+    const driftScore =
+      typeof window !== "undefined" && window.__DRIFT_SCORE__ != null
+        ? window.__DRIFT_SCORE__ : DRIFT_SCORE;
+    const driftForce = typeof window !== "undefined" && window.__DRIFT_FORCE__;
+    if (score >= driftScore && (driftForce || Math.random() < 0.45)) {
+      const room = (bot - top - gh) * 0.5;
+      wall.driftAmp = Math.min(room * 0.5, (bot - top) * 0.08);
+      wall.driftPhase = Math.random() * 6.28;
+      if (QA) {
+        QA.driftWalls = (QA.driftWalls || 0) + 1;
+        if (QA.firstDriftScore === undefined) QA.firstDriftScore = score;
+      }
+    }
     walls.push(wall);
-    if (QA && prev === null) QA.lead = x - duckX(W);
+    if (QA) {
+      QA.lead = prev === null ? x - duckX(W) : QA.lead;
+      QA.wallStyles = QA.wallStyles || {};
+      QA.wallStyles[wall.style] = true;
+    }
     if (Math.random() < K_PROB) spawnDuckling(W, H, wall);
   }
 
@@ -130,9 +187,69 @@ export function quackLift(engine, goHub) {
       particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.5 + Math.random() * 0.2 });
     }
   }
+  function spawnSpray(x, y) {
+    for (let i = 0; i < 5; i++) {
+      const a = -1.2 - Math.random() * 0.8; // up-ish fan
+      const sp = 60 + Math.random() * 70;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.2 });
+    }
+  }
+  function spawnSpark(x, y) {
+    for (let i = 0; i < 8; i++) {
+      const a = Math.random() * 6.28;
+      const sp = 70 + Math.random() * 120;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.3 + Math.random() * 0.2 });
+    }
+  }
+  function spawnSplash(x, y) {
+    for (let i = 0; i < 16; i++) {
+      const a = -Math.random() * Math.PI; // upward burst
+      const sp = 80 + Math.random() * 170;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: 0.5 + Math.random() * 0.3 });
+    }
+  }
+  function spawnRing(x, y, col) {
+    rings.push({ x, y, r: KR, vr: 90, life: 0.5, col: col || "#9becff" });
+  }
 
   function duckX(W) {
     return Math.min(W * 0.3, 170);
+  }
+
+  // step transient fx (particles/rings/wakes/bubbles/popups/timers). Shared by the
+  // play loop and the death sink so the splash keeps animating after the hit.
+  function stepFx(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 220 * dt;
+      p.life -= dt;
+    }
+    particles = particles.filter((p) => p.life > 0);
+    for (const r of rings) {
+      r.r += r.vr * dt;
+      r.life -= dt;
+    }
+    rings = rings.filter((r) => r.life > 0);
+    for (const w of wakes) {
+      w.r += 26 * dt;
+      w.life -= dt;
+    }
+    wakes = wakes.filter((w) => w.life > 0);
+    for (const b of bubbles) {
+      b.y -= b.vy * dt;
+      b.life -= dt;
+    }
+    bubbles = bubbles.filter((b) => b.life > 0 && b.y > water);
+    for (const tr of trail) tr.life -= dt;
+    trail = trail.filter((tr) => tr.life > 0);
+    for (const pp of popups) {
+      pp.y -= 36 * dt;
+      pp.life -= dt;
+    }
+    popups = popups.filter((pp) => pp.life > 0);
+    if (flash > 0) flash = Math.max(0, flash - dt);
+    if (popT > 0) popT = Math.max(0, popT - dt);
   }
 
   function update(e, dt) {
@@ -142,7 +259,8 @@ export function quackLift(engine, goHub) {
     t += dt;
 
     // bot: start/restart, then hold while the duck sits below the next gap
-    // centre and release above it (deadzone to damp jitter)
+    // centre and release above it (deadzone to damp jitter). __BOT_EDGE__ makes
+    // it hug an edge instead of centring — used by the polish test to fire a near-miss.
     if (BOT && !window.__BOT_OFF__) {
       if (state === "ready") state = "play";
       else if (state === "over") reset();
@@ -152,9 +270,10 @@ export function quackLift(engine, goHub) {
         for (const wl of walls)
           if (wl.x + WALL_W > dx - DUCK_R && (!next || wl.x < next.x)) next = wl;
         let target = next ? next.gapY : (top + bot) / 2;
-        // detour for an uncollected duckling that's still inside the upcoming gap
-        // (safe to grab while threading); skip the risky off-line ones
-        if (next) {
+        if (next && window.__BOT_EDGE__) {
+          target = next.gapY + (next.gh / 2 - DUCK_R - 10); // hug the lower edge (near-miss, not a hit)
+        } else if (next) {
+          // detour for an uncollected duckling still inside the upcoming gap
           let kt = null;
           for (const k of kueken)
             if (!k.got && k.x + KR > dx - DUCK_R && k.x < next.x &&
@@ -168,6 +287,20 @@ export function quackLift(engine, goHub) {
     }
 
     if (QA) QA.state = state; // every frame (incl. ready/over) for the headless test
+
+    // death sink: the duck drops + spins, the splash animates, then the banner.
+    if (state === "dying") {
+      deathT += dt;
+      deathFlash = Math.max(0, deathFlash - dt * 2);
+      duck.vy += 700 * dt;
+      duck.y += duck.vy * dt;
+      deathRot += dt * 4;
+      stepFx(dt);
+      if (deathT >= DEATH_DUR) state = "over";
+      if (QA) QA.state = state;
+      return;
+    }
+
     if (state !== "play") return;
 
     // water surface: rises while held, falls while released
@@ -182,29 +315,60 @@ export function quackLift(engine, goHub) {
 
     // walls scroll left; spawn a new one once the rightmost has moved far enough
     scroll = SCROLL0 + score * SCROLL_RAMP;
-    for (const wl of walls) wl.x -= scroll * dt;
+    for (const wl of walls) {
+      wl.x -= scroll * dt;
+      if (wl.driftAmp > 0)
+        wl.gapY = clampN(wl.baseGapY + Math.sin(t * DRIFT_SPD + wl.driftPhase) * wl.driftAmp,
+          top + wl.gh / 2, bot - wl.gh / 2);
+      if (wl.nearGlow > 0) wl.nearGlow = Math.max(0, wl.nearGlow - dt * 1.5);
+    }
     const rightmost = walls.length ? Math.max(...walls.map((wl) => wl.x)) : -Infinity;
     if (walls.length === 0 || rightmost <= W - SPAWN_GAP) spawnWall(W, H);
     walls = walls.filter((wl) => wl.x > -WALL_W * 2);
 
     const dx = duckX(W);
     for (const wl of walls) {
+      const gapTop = wl.gapY - wl.gh / 2;
+      const gapBot = wl.gapY + wl.gh / 2;
       // horizontal overlap with the duck column
       if (wl.x < dx + DUCK_R && wl.x + WALL_W > dx - DUCK_R) {
-        const gapTop = wl.gapY - wl.gh / 2;
-        const gapBot = wl.gapY + wl.gh / 2;
         if (duck.y - DUCK_R < gapTop || duck.y + DUCK_R > gapBot) {
-          state = "over";
+          // hit -> death sink sequence (highscore banked now, so best survives)
+          state = "dying";
+          deathT = 0;
+          deathFlash = 0.45;
+          deathRot = 0;
+          duck.vy = Math.max(duck.vy, 240);
           engine.highscore("quacklift", score); // legacy key (walls) untouched
           best = engine.highscore("quacklift-pts", pts);
           audio.sadQuack();
+          spawnSplash(dx, duck.y);
+          if (QA) { QA.deathSeq = true; QA.state = state; }
+          return;
         }
+        // track closest clearance to a gap edge for the near-miss check at pass
+        const clr = Math.min(duck.y - DUCK_R - gapTop, gapBot - (duck.y + DUCK_R));
+        wl.minMargin = wl.minMargin === undefined ? clr : Math.min(wl.minMargin, clr);
       }
       if (!wl.passed && wl.x + WALL_W < dx - DUCK_R) {
         wl.passed = true;
         score++;
         pts += 100; // baseline wall bonus — keeps a duckling-free run identical to before
         audio.quack(420 + Math.random() * 80);
+        popT = 0.18; // surface pop on a clean pass
+        spawnSpray(dx, water);
+        // near-miss: threaded close to an edge -> reward with spark + whoosh.
+        // __NEAR_MISS_PX__ widens the threshold for the headless test (dead in prod).
+        const nearPx =
+          typeof window !== "undefined" && window.__NEAR_MISS_PX__ != null
+            ? window.__NEAR_MISS_PX__ : NEAR_MISS_PX;
+        if (wl.minMargin !== undefined && wl.minMargin < nearPx) {
+          const edgeY = duck.y < wl.gapY ? gapTop : gapBot;
+          spawnSpark(wl.x + WALL_W, edgeY);
+          wl.nearGlow = 0.5;
+          audio.whoosh();
+          if (QA) QA.nearMiss = (QA.nearMiss || 0) + 1;
+        }
       }
     }
 
@@ -221,25 +385,24 @@ export function quackLift(engine, goHub) {
         if (mult > prevMult) flash = 0.28;
         popups.push({ x: dx + DUCK_R, y: duck.y, txt: "+" + gain, life: 0.8 });
         spawnSparkle(k.x, k.y);
+        spawnRing(k.x, k.y, "#ffe66b");
         audio.quack(520 + mult * 45);
       }
     }
     kueken = kueken.filter((k) => k.x > -40 && !(k.got && k.x < dx));
 
-    // --- transient fx ---
-    for (const p of particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 220 * dt;
-      p.life -= dt;
+    // --- ambient + feel fx ---
+    wakeAcc += dt;
+    if (wakeAcc > 0.18) { wakeAcc = 0; wakes.push({ x: dx, y: water, r: 6, life: 0.6 }); }
+    bubbleAcc += dt;
+    if (bubbleAcc > 0.5) {
+      bubbleAcc = 0;
+      bubbles.push({ x: Math.random() * W, y: bot, vy: 28 + Math.random() * 40, r: 2 + Math.random() * 3, life: 4 });
     }
-    particles = particles.filter((p) => p.life > 0);
-    for (const pp of popups) {
-      pp.y -= 36 * dt;
-      pp.life -= dt;
-    }
-    popups = popups.filter((pp) => pp.life > 0);
-    if (flash > 0) flash = Math.max(0, flash - dt);
+    if (mult >= TRAIL_MULT) trail.push({ x: dx, y: duck.y, life: 0.35 });
+    if (QA) QA.bubbles = bubbles.length;
+
+    stepFx(dt);
 
     if (QA) {
       QA.state = state;
@@ -257,6 +420,63 @@ export function quackLift(engine, goHub) {
         if (wl.x + WALL_W > dx - DUCK_R && (!next || wl.x < next.x)) next = wl;
       QA.nextGapY = next ? next.gapY : null;
     }
+  }
+
+  // --- one wall, drawn per visual style. Gap geometry is identical across styles. ---
+  function drawWall(ctx, wl, H) {
+    const gapTop = wl.gapY - wl.gh / 2;
+    const gapBot = wl.gapY + wl.gh / 2;
+    const x = wl.x;
+    ctx.save();
+    ctx.shadowColor = "#ff4fa3";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "rgba(255,79,163,0.16)";
+    ctx.strokeStyle = "#ff4fa3";
+    ctx.lineWidth = 2;
+    if (wl.style === "stalactite") {
+      // each half tapers to a point at its gap edge
+      ctx.beginPath();
+      ctx.moveTo(x, -4);
+      ctx.lineTo(x + WALL_W, -4);
+      ctx.lineTo(x + WALL_W, gapTop - 20);
+      ctx.lineTo(x + WALL_W / 2, gapTop);
+      ctx.lineTo(x, gapTop - 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, H + 4);
+      ctx.lineTo(x + WALL_W, H + 4);
+      ctx.lineTo(x + WALL_W, gapBot + 20);
+      ctx.lineTo(x + WALL_W / 2, gapBot);
+      ctx.lineTo(x, gapBot + 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(x, -4, WALL_W, gapTop + 4);
+      ctx.strokeRect(x + 0.5, -4, WALL_W - 1, gapTop + 4);
+      ctx.fillRect(x, gapBot, WALL_W, H - gapBot + 4);
+      ctx.strokeRect(x + 0.5, gapBot, WALL_W - 1, H - gapBot + 4);
+    }
+    ctx.restore();
+    // glowing gap edges (the "safe" lane). Gate = brighter rounded frame.
+    const baseGlow = wl.style === "gate" ? 0.9 : 0.5;
+    const glow = Math.max(baseGlow, wl.nearGlow || 0);
+    ctx.save();
+    if (wl.style === "gate" || wl.nearGlow > 0) {
+      ctx.shadowColor = "#36e6ff";
+      ctx.shadowBlur = (wl.style === "gate" ? 8 : 0) + (wl.nearGlow || 0) * 22;
+    }
+    ctx.strokeStyle = `rgba(54,230,255,${glow})`;
+    ctx.lineWidth = wl.style === "gate" ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(x, gapTop);
+    ctx.lineTo(x + WALL_W, gapTop);
+    ctx.moveTo(x, gapBot);
+    ctx.lineTo(x + WALL_W, gapBot);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function render(e, ctx) {
@@ -286,31 +506,8 @@ export function quackLift(engine, goHub) {
       ctx.stroke();
     }
 
-    // --- neon walls (top + bottom of each gap) ---
-    for (const wl of walls) {
-      const gapTop = wl.gapY - wl.gh / 2;
-      const gapBot = wl.gapY + wl.gh / 2;
-      ctx.save();
-      ctx.shadowColor = "#ff4fa3";
-      ctx.shadowBlur = 12;
-      ctx.fillStyle = "rgba(255,79,163,0.16)";
-      ctx.strokeStyle = "#ff4fa3";
-      ctx.lineWidth = 2;
-      ctx.fillRect(wl.x, -4, WALL_W, gapTop + 4);
-      ctx.strokeRect(wl.x + 0.5, -4, WALL_W - 1, gapTop + 4);
-      ctx.fillRect(wl.x, gapBot, WALL_W, H - gapBot + 4);
-      ctx.strokeRect(wl.x + 0.5, gapBot, WALL_W - 1, H - gapBot + 4);
-      ctx.restore();
-      // glowing gap edges (the "safe" lane)
-      ctx.strokeStyle = "rgba(54,230,255,0.5)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(wl.x, gapTop);
-      ctx.lineTo(wl.x + WALL_W, gapTop);
-      ctx.moveTo(wl.x, gapBot);
-      ctx.lineTo(wl.x + WALL_W, gapBot);
-      ctx.stroke();
-    }
+    // --- neon walls (per style) ---
+    for (const wl of walls) drawWall(ctx, wl, H);
 
     // --- water body with an animated wavy surface + glowing surface line ---
     const surf = water;
@@ -327,6 +524,17 @@ export function quackLift(engine, goHub) {
     wg.addColorStop(1, "rgba(10,40,120,0.30)"); // deeper bottom so caustics read
     ctx.fillStyle = wg;
     ctx.fill();
+    // rising bubbles (depth; paint-only, capped)
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = "rgba(160,240,255,0.7)";
+    ctx.lineWidth = 1;
+    for (const b of bubbles) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
     // caustic shimmer under the surface (cheap polylines, no shadow)
     ctx.save();
     ctx.globalAlpha = 0.05;
@@ -350,6 +558,17 @@ export function quackLift(engine, goHub) {
     for (let x = 0; x <= W; x += 16)
       ctx.lineTo(x, surf + Math.sin(x * 0.03 + t * 3) * 4 + Math.sin(x * 0.07 - t * 2) * 2);
     ctx.stroke();
+    ctx.restore();
+    // wake ripples the duck leaves on the surface
+    ctx.save();
+    ctx.strokeStyle = "rgba(160,240,255,0.5)";
+    ctx.lineWidth = 1.5;
+    for (const w of wakes) {
+      ctx.globalAlpha = clampN(w.life, 0, 1) * 0.6;
+      ctx.beginPath();
+      ctx.ellipse(w.x, w.y, w.r, w.r * 0.4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
 
     // --- ducklings (drawn behind the duck): generated sprite, primitive fallback ---
@@ -390,11 +609,34 @@ export function quackLift(engine, goHub) {
       ctx.fill();
     }
 
-    // --- the duck riding the surface ---
-    const squash = clampN(1 + duck.vy * 0.0008, 0.82, 1.2);
-    drawDuck(ctx, dx, duck.y, DUCK_R * 1.5, { squash, pose: "default" });
+    // --- greed trail behind the duck (high combo) ---
+    if (trail.length) {
+      ctx.save();
+      for (const tr of trail) {
+        ctx.globalAlpha = clampN(tr.life / 0.35, 0, 1) * 0.4;
+        ctx.fillStyle = "#36e6ff";
+        ctx.beginPath();
+        ctx.arc(tr.x, tr.y, DUCK_R * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
-    // --- sparkle particles + score popups (in front of the duck) ---
+    // --- the duck riding the surface (leans into vertical motion; spins on death) ---
+    const squash = clampN(1 + duck.vy * 0.0008 + popT * 0.5, 0.82, 1.4);
+    const rot = state === "dying" ? deathRot : clampN(duck.vy * LEAN_K, -LEAN_MAX, LEAN_MAX);
+    drawDuck(ctx, dx, duck.y, DUCK_R * 1.5, { squash, rot, pose: "default" });
+
+    // --- pickup rings + sparkle particles + score popups (in front of the duck) ---
+    for (const r of rings) {
+      ctx.globalAlpha = clampN(r.life * 2, 0, 1) * 0.7;
+      ctx.strokeStyle = r.col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
     for (const p of particles) {
       ctx.globalAlpha = clampN(p.life * 2, 0, 1);
       ctx.fillStyle = "#9becff";
@@ -409,6 +651,21 @@ export function quackLift(engine, goHub) {
       ctx.fillText(pp.txt, pp.x, pp.y);
     }
     ctx.globalAlpha = 1;
+
+    // --- combo greed vignette (intensifies with the multiplier) ---
+    if (mult >= TRAIL_MULT) {
+      const tint = clampN((mult - TRAIL_MULT + 1) / (MULT_MAX - TRAIL_MULT + 1), 0, 1) * 0.22;
+      const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.72);
+      vg.addColorStop(0, "rgba(54,230,255,0)");
+      vg.addColorStop(1, `rgba(54,230,255,${tint})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
+    // --- death flash ---
+    if (deathFlash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${clampN(deathFlash, 0, 0.45)})`;
+      ctx.fillRect(0, 0, W, H);
+    }
 
     // --- HUD --- (safe-area aware; right column clears the fixed mute button)
     const st = e.safe.top, sl = e.safe.left;
@@ -481,6 +738,7 @@ export function quackLift(engine, goHub) {
   }
 
   function press() {
+    if (state === "dying") return; // can't restart mid-sink
     if (state === "over") {
       reset();
       return;

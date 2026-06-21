@@ -73,6 +73,32 @@ export function sadQuack() {
   osc.stop(t + 0.5);
 }
 
+// Short descending noise "whoosh" — a skillful near-miss in Quack Lift.
+export function whoosh() {
+  if (muted || !ctx) return;
+  if (onOut) onOut(180);
+  const t = ctx.currentTime;
+  const dur = 0.18;
+  const n = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.setValueAtTime(1800, t);
+  bp.frequency.exponentialRampToValueAtTime(480, t + dur);
+  bp.Q.value = 0.8;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp).connect(g).connect(ctx.destination);
+  src.start(t);
+  src.stop(t + dur + 0.02);
+}
+
 // --- looping chiptune bed (arcade ambience) ----------------------------------
 // A subtle 8-bit arpeggio + bass loop, all synthesized. Plays in the hub and
 // Quack Lift; stays OFF in DUCK & COVER (the mic squeak detector runs there with
