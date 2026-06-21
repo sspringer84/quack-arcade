@@ -13,8 +13,13 @@ const DUCK_R = 22;
 const DUCK_RIDE = 14; // how far above the surface the duck floats
 const WATER_RISE = 360; // px/s the surface climbs while held
 const WATER_FALL = 300; // px/s it recedes while released (a touch slower = buoyant)
-const SPRING = 48; // buoyancy stiffness pulling the duck to the surface
-const DAMP = 11; // buoyancy damping (slightly under critical -> a little bob)
+const SPRING = 70; // buoyancy stiffness pulling the duck to the surface (tightened from 48)
+const DAMP = 14; // buoyancy damping (nearer critical -> crisp dips, less overshoot)
+const KR = 11; // duckling pickup radius
+const K_PROB = 0.8; // chance a wall also spawns a duckling
+const K_OFF_MILD = 0.12; // mild offset from gap centre (fraction of band) — in-gap, collectible
+const K_OFF_RISK = 0.2; // danger offset (fraction of band) — off the safe line, recover-or-die
+const MULT_MAX = 9;
 const WALL_W = 58; // neon wall thickness
 const SCROLL0 = 140; // initial scroll speed (px/s)
 const SCROLL_RAMP = 4; // +px/s of scroll per wall cleared
@@ -37,6 +42,8 @@ export function quackLift(engine, goHub) {
     new URLSearchParams(location.search).has("bot");
 
   let state, duck, water, walls, scroll, score, best, holding, t;
+  // second axis: ducklings + greed combo (reset only on death)
+  let kueken, mult, pts, collected, particles, popups, flash;
 
   // playable vertical band (water clamps here; gaps spawn within it)
   function band(H) {
@@ -48,13 +55,20 @@ export function quackLift(engine, goHub) {
     const { top, bot } = band(H);
     state = "ready";
     score = 0;
-    best = engine.highscore("quacklift");
+    best = engine.highscore("quacklift-pts");
     water = (top + bot) / 2;
     duck = { y: water - DUCK_RIDE, vy: 0 };
     walls = [];
     scroll = SCROLL0;
     holding = false;
     t = 0;
+    kueken = [];
+    mult = 1;
+    pts = 0;
+    collected = 0;
+    particles = [];
+    popups = [];
+    flash = 0;
   }
 
   function gapH(H) {
@@ -73,7 +87,29 @@ export function quackLift(engine, goHub) {
       const maxStep = (bot - top) * 0.26;
       gapY = clampN(gapY, prev.gapY - maxStep, prev.gapY + maxStep);
     }
-    walls.push({ x: W + WALL_W, gapY, gh, passed: false });
+    const wall = { x: W + WALL_W, gapY, gh, passed: false };
+    walls.push(wall);
+    if (Math.random() < K_PROB) spawnDuckling(W, H, wall);
+  }
+
+  // A duckling rides in the open lane *before* its wall (never walled-in), offset
+  // from the gap centre. Mild ones stay inside the gap (a small detour); danger
+  // ones sit off the safe line — grab them and recover before the wall arrives.
+  function spawnDuckling(W, H, wall) {
+    const { top, bot } = band(H);
+    const danger = Math.random() < 0.34;
+    const mag = (danger ? K_OFF_RISK : K_OFF_MILD) * (bot - top);
+    const sign = Math.random() < 0.5 ? -1 : 1;
+    const ky = clampN(wall.gapY + sign * mag, top + KR, bot - KR);
+    kueken.push({ x: wall.x - SPAWN_GAP * 0.33, y: ky, got: false, bob: Math.random() * 6.28 });
+  }
+
+  function spawnSparkle(x, y) {
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * 6.28;
+      const sp = 40 + Math.random() * 90;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.5 + Math.random() * 0.2 });
+    }
   }
 
   function duckX(W) {
@@ -96,7 +132,17 @@ export function quackLift(engine, goHub) {
         let next = null;
         for (const wl of walls)
           if (wl.x + WALL_W > dx - DUCK_R && (!next || wl.x < next.x)) next = wl;
-        const target = next ? next.gapY : (top + bot) / 2;
+        let target = next ? next.gapY : (top + bot) / 2;
+        // detour for an uncollected duckling that's still inside the upcoming gap
+        // (safe to grab while threading); skip the risky off-line ones
+        if (next) {
+          let kt = null;
+          for (const k of kueken)
+            if (!k.got && k.x + KR > dx - DUCK_R && k.x < next.x &&
+                Math.abs(k.y - next.gapY) < next.gh / 2 - DUCK_R &&
+                (!kt || k.x < kt.x)) kt = k;
+          if (kt) target = kt.y;
+        }
         if (duck.y > target + 5) holding = true;
         else if (duck.y < target - 5) holding = false;
       }
@@ -130,16 +176,51 @@ export function quackLift(engine, goHub) {
         const gapBot = wl.gapY + wl.gh / 2;
         if (duck.y - DUCK_R < gapTop || duck.y + DUCK_R > gapBot) {
           state = "over";
-          best = engine.highscore("quacklift", score);
+          engine.highscore("quacklift", score); // legacy key (walls) untouched
+          best = engine.highscore("quacklift-pts", pts);
           audio.sadQuack();
         }
       }
       if (!wl.passed && wl.x + WALL_W < dx - DUCK_R) {
         wl.passed = true;
         score++;
+        pts += 100; // baseline wall bonus — keeps a duckling-free run identical to before
         audio.quack(420 + Math.random() * 80);
       }
     }
+
+    // --- ducklings: scroll, collect (greed combo), cull ---
+    for (const k of kueken) {
+      k.x -= scroll * dt;
+      if (!k.got && Math.abs(k.x - dx) < DUCK_R + KR && Math.abs(k.y - duck.y) < DUCK_R + KR) {
+        k.got = true;
+        collected++;
+        const prevMult = mult;
+        mult = clampN(1 + collected, 1, MULT_MAX);
+        const gain = 50 * mult;
+        pts += gain;
+        if (mult > prevMult) flash = 0.4;
+        popups.push({ x: dx + DUCK_R, y: duck.y, txt: "+" + gain, life: 0.8 });
+        spawnSparkle(k.x, k.y);
+        audio.quack(520 + mult * 45);
+      }
+    }
+    kueken = kueken.filter((k) => k.x > -40 && !(k.got && k.x < dx));
+
+    // --- transient fx ---
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 220 * dt;
+      p.life -= dt;
+    }
+    particles = particles.filter((p) => p.life > 0);
+    for (const pp of popups) {
+      pp.y -= 36 * dt;
+      pp.life -= dt;
+    }
+    popups = popups.filter((pp) => pp.life > 0);
+    if (flash > 0) flash = Math.max(0, flash - dt);
 
     if (QA) {
       QA.state = state;
@@ -148,6 +229,10 @@ export function quackLift(engine, goHub) {
       QA.score = score;
       QA.holding = holding;
       QA.maxScore = Math.max(QA.maxScore || 0, score);
+      QA.mult = mult;
+      QA.pts = pts;
+      QA.collected = collected;
+      QA.kueken = kueken.length;
       let next = null;
       for (const wl of walls)
         if (wl.x + WALL_W > dx - DUCK_R && (!next || wl.x < next.x)) next = wl;
@@ -248,9 +333,53 @@ export function quackLift(engine, goHub) {
     ctx.stroke();
     ctx.restore();
 
+    // --- ducklings (drawn behind the duck) ---
+    for (const k of kueken) {
+      if (k.got) continue;
+      const by = k.y + Math.sin(t * 3 + k.bob) * 3;
+      ctx.save();
+      ctx.shadowColor = "#ffe66b";
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = "#ffd23f";
+      ctx.beginPath();
+      ctx.arc(k.x, by, KR, 0, Math.PI * 2); // body
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(k.x + KR * 0.5, by - KR * 0.7, KR * 0.62, 0, Math.PI * 2); // head
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = "#ff9505";
+      ctx.beginPath(); // beak
+      ctx.moveTo(k.x + KR * 0.95, by - KR * 0.8);
+      ctx.lineTo(k.x + KR * 1.5, by - KR * 0.6);
+      ctx.lineTo(k.x + KR * 0.95, by - KR * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath(); // eye
+      ctx.arc(k.x + KR * 0.65, by - KR * 0.8, KR * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // --- the duck riding the surface ---
     const squash = clampN(1 + duck.vy * 0.0008, 0.82, 1.2);
     drawDuck(ctx, dx, duck.y, DUCK_R * 1.5, { squash, pose: "default" });
+
+    // --- sparkle particles + score popups (in front of the duck) ---
+    for (const p of particles) {
+      ctx.globalAlpha = clampN(p.life * 2, 0, 1);
+      ctx.fillStyle = "#9becff";
+      ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "center";
+    ctx.font = "bold 16px 'JetBrains Mono', ui-monospace, monospace";
+    for (const pp of popups) {
+      ctx.globalAlpha = clampN(pp.life * 1.4, 0, 1);
+      ctx.fillStyle = "#ffd23f";
+      ctx.fillText(pp.txt, pp.x, pp.y);
+    }
+    ctx.globalAlpha = 1;
 
     // --- HUD ---
     ctx.fillStyle = "#dfe6f3";
@@ -261,18 +390,32 @@ export function quackLift(engine, goHub) {
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffd23f";
     ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("score " + (score * 100).toLocaleString(), W - 14, 14);
+    ctx.fillText("score " + pts.toLocaleString(), W - 14, 14);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("best " + (best * 100).toLocaleString(), W - 14, 36);
+    ctx.fillText("best " + best.toLocaleString(), W - 14, 36);
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
     ctx.fillText("‹ hub", 16, 44);
 
+    // combo multiplier chip (centre top) — flares on tier-up
+    if (mult > 1) {
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const sc = 1 + flash * 0.8;
+      ctx.shadowColor = "#36e6ff";
+      ctx.shadowBlur = 10 + flash * 30;
+      ctx.fillStyle = flash > 0 ? "#ffffff" : "#36e6ff";
+      ctx.font = `400 ${Math.round(24 * sc)}px "Audiowide", system-ui, sans-serif`;
+      ctx.fillText("x" + mult, W / 2, 26);
+      ctx.restore();
+    }
+
     if (state === "ready")
-      banner(ctx, W, H, "QUACK LIFT", isTouch ? "Halten = Wasser hoch · loslassen = runter" : "Leertaste halten = Wasser hoch · loslassen = runter", "#36e6ff");
+      banner(ctx, W, H, "QUACK LIFT", isTouch ? "Halten = hoch · loslassen = runter · 🐤 = Combo" : "Leertaste halten = hoch · loslassen = runter · 🐤 = Combo", "#36e6ff");
     else if (state === "over") {
-      banner(ctx, W, H, (score * 100).toLocaleString() + " Punkte", "Glub glub. Die Ente ist abgesoffen.", "#ff7b9c", "Tippen für nochmal");
+      banner(ctx, W, H, pts.toLocaleString() + " Punkte", collected > 0 ? collected + " Küken gerettet · Glub glub." : "Glub glub. Die Ente ist abgesoffen.", "#ff7b9c", "Tippen für nochmal");
     }
   }
 
