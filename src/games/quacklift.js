@@ -26,6 +26,7 @@ const SCROLL_RAMP = 4; // +px/s of scroll per wall cleared
 const GAP0 = 0.34; // initial gap height (fraction of playable band)
 const GAP_MIN = 0.22; // gap shrinks toward this with score
 const SPAWN_GAP = 300; // horizontal spacing between walls (px)
+const STEP = SPAWN_GAP + WALL_W; // constant horizontal beat between walls (duck = phantom wall 0)
 
 const clampN = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -81,14 +82,22 @@ export function quackLift(engine, goHub) {
     const { top, bot } = band(H);
     const gh = gapH(H);
     const prev = walls.length ? walls[walls.length - 1] : null;
-    let gapY = top + gh / 2 + Math.random() * (bot - top - gh);
-    // keep consecutive gaps reachable: limit vertical jump between walls
+    let gapY;
     if (prev) {
+      gapY = top + gh / 2 + Math.random() * (bot - top - gh);
+      // keep consecutive gaps reachable: limit vertical jump between walls
       const maxStep = (bot - top) * 0.26;
       gapY = clampN(gapY, prev.gapY - maxStep, prev.gapY + maxStep);
+    } else {
+      gapY = (top + bot) / 2; // gentle opener: first gap centred where the duck rests
     }
-    const wall = { x: W + WALL_W, gapY, gh, passed: false };
+    // The first wall sits one beat ahead of the DUCK (not at the right screen edge),
+    // so the run-up is the same ~2.5s on phone and desktop instead of ~8s on a wide
+    // screen. Treats the duck as a phantom wall zero; later walls keep the same beat.
+    const x = (prev ? prev.x : duckX(W)) + STEP;
+    const wall = { x, gapY, gh, passed: false };
     walls.push(wall);
+    if (QA && prev === null) QA.lead = x - duckX(W);
     if (Math.random() < K_PROB) spawnDuckling(W, H, wall);
   }
 
