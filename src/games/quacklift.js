@@ -19,6 +19,30 @@ if (duckImg) {
   duckImg.src = "assets/duckling.png";
 }
 
+// Generated neon wall textures (Flux Schnell, chroma-keyed), tiled per segment.
+// Each wall picks a THEME (colour + texture). Segment height becomes a TILE COUNT
+// (mirror-flipped each row so vertical motifs self-tile without a visible seam),
+// never a stretch, so a tall and a short segment share identical crisp pixels.
+// The canvas fallback recolours the plain bar until/unless the PNG loads, so the
+// geometry/collision never depend on an asset existing.
+const TILE_H = 192; // on-screen height of one texture tile (asset shipped 58x192)
+const THEME_DEFS = [
+  { name: "magenta-conduit", color: "#ff4fa3", fill: "rgba(255,79,163,0.16)" },
+  { name: "cyan-circuit", color: "#36e6ff", fill: "rgba(54,230,255,0.16)" },
+  { name: "gold-rail", color: "#ffd23f", fill: "rgba(255,210,63,0.16)" },
+  { name: "violet-laser", color: "#9b5cff", fill: "rgba(155,92,255,0.16)" },
+  { name: "emerald-reed", color: "#2bd6a0", fill: "rgba(43,214,160,0.16)" },
+];
+const THEMES = THEME_DEFS.map((d) => {
+  const th = { ...d, img: null, ready: false };
+  if (typeof Image !== "undefined") {
+    th.img = new Image();
+    th.img.onload = () => (th.ready = true);
+    th.img.src = "assets/walls/" + d.name + ".png";
+  }
+  return th;
+});
+
 const DUCK_R = 22;
 const DUCK_RIDE = 14; // how far above the surface the duck floats
 const WATER_RISE = 360; // px/s the surface climbs while held
@@ -60,7 +84,7 @@ export function quackLift(engine, goHub) {
     typeof location !== "undefined" &&
     new URLSearchParams(location.search).has("bot");
 
-  let state, duck, water, walls, scroll, score, best, holding, t;
+  let state, duck, water, walls, scroll, score, best, holding, t, wallCount;
   // second axis: ducklings + greed combo (reset only on death)
   let kueken, mult, pts, collected, particles, popups, flash;
   // polish fx state
@@ -83,6 +107,7 @@ export function quackLift(engine, goHub) {
     scroll = SCROLL0;
     holding = false;
     t = 0;
+    wallCount = 0;
     kueken = [];
     mult = 1;
     pts = 0;
@@ -121,6 +146,22 @@ export function quackLift(engine, goHub) {
     return "bar";
   }
 
+  // wall SKIN (colour + texture) — orthogonal to style. Blooms EARLY (from wall 2)
+  // so a run shows several neon colours fast, while SHAPE stays score-gated/calm.
+  // Opener is theme 0 (its fallback is the original magenta bar). Never repeats the
+  // previous theme, and the first few post-opener walls stay in the two calmest
+  // colours before the full set opens up. __THEME_FORCE__/__THEME_ALL__ are
+  // headless-test hooks (dead in prod).
+  function chooseTheme(prev, count) {
+    if (typeof window !== "undefined" && window.__THEME_FORCE__ != null)
+      return window.__THEME_FORCE__;
+    if (!prev) return 0;
+    const n = THEMES.length;
+    if (typeof window !== "undefined" && window.__THEME_ALL__) return count % n;
+    const pool = count < 4 ? Math.min(2, n) : n; // calm colours first, full set by ~wall 5
+    return (prev.theme + 1 + Math.floor(Math.random() * (pool - 1))) % pool;
+  }
+
   function spawnWall(W, H) {
     const { top, bot } = band(H);
     const gh = gapH(H);
@@ -141,6 +182,7 @@ export function quackLift(engine, goHub) {
     const wall = {
       x, gapY, gh, passed: false,
       style: chooseStyle(prev),
+      theme: chooseTheme(prev, wallCount++),
       baseGapY: gapY, driftAmp: 0, driftPhase: 0,
       nearGlow: 0, minMargin: undefined,
     };
@@ -164,6 +206,11 @@ export function quackLift(engine, goHub) {
       QA.lead = prev === null ? x - duckX(W) : QA.lead;
       QA.wallStyles = QA.wallStyles || {};
       QA.wallStyles[wall.style] = true;
+      QA.wallThemes = QA.wallThemes || {};
+      QA.wallThemes[wall.theme] = true;
+      if (QA.firstTheme === undefined) QA.firstTheme = wall.theme;
+      QA.themeSeq = QA.themeSeq || [];
+      if (QA.themeSeq.length < 300) QA.themeSeq.push(wall.theme);
     }
     if (Math.random() < K_PROB) spawnDuckling(W, H, wall);
   }
@@ -422,19 +469,51 @@ export function quackLift(engine, goHub) {
     }
   }
 
-  // --- one wall, drawn per visual style. Gap geometry is identical across styles. ---
+  // Fill a wall segment [y0,y1] by vertically tiling a texture, clipped to the exact
+  // segment bounds (no pixel spills past the gap edge — collision + visuals share one
+  // source of truth). Every other tile is mirror-flipped so a continuous vertical motif
+  // self-tiles without a seam. Anchored at the gap edge so the texture stays locked to
+  // the gap as it drifts. Width is locked to WALL_W (never stretched).
+  function fillTiledSeg(ctx, img, x, y0, y1, bottomAnchor) {
+    if (y1 - y0 <= 0) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y0, WALL_W, y1 - y0);
+    ctx.clip();
+    ctx.shadowBlur = 0; // the texture doesn't glow; the edge stroke carries the neon
+    if (bottomAnchor) {
+      for (let i = 0, yy = y0; yy < y1; yy += TILE_H, i++) drawTile(ctx, img, x, yy, i & 1);
+    } else {
+      for (let i = 0, yy = y1; yy > y0; yy -= TILE_H, i++) drawTile(ctx, img, x, yy - TILE_H, i & 1);
+    }
+    ctx.restore();
+  }
+  function drawTile(ctx, img, x, y, flip) {
+    if (flip) {
+      ctx.save();
+      ctx.translate(0, y + TILE_H);
+      ctx.scale(1, -1);
+      ctx.drawImage(img, x, 0, WALL_W, TILE_H);
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, x, y, WALL_W, TILE_H);
+    }
+  }
+
+  // --- one wall, drawn per visual style + theme. Gap geometry is identical across all. ---
   function drawWall(ctx, wl, H) {
     const gapTop = wl.gapY - wl.gh / 2;
     const gapBot = wl.gapY + wl.gh / 2;
     const x = wl.x;
+    const th = THEMES[wl.theme] || THEMES[0];
     ctx.save();
-    ctx.shadowColor = "#ff4fa3";
+    ctx.shadowColor = th.color;
     ctx.shadowBlur = 12;
-    ctx.fillStyle = "rgba(255,79,163,0.16)";
-    ctx.strokeStyle = "#ff4fa3";
+    ctx.fillStyle = th.fill;
+    ctx.strokeStyle = th.color;
     ctx.lineWidth = 2;
     if (wl.style === "stalactite") {
-      // each half tapers to a point at its gap edge
+      // each half tapers to a point at its gap edge (themed colour; no texture)
       ctx.beginPath();
       ctx.moveTo(x, -4);
       ctx.lineTo(x + WALL_W, -4);
@@ -453,7 +532,14 @@ export function quackLift(engine, goHub) {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+    } else if (th.ready) {
+      // generated neon body, tiled into each segment; themed neon edge drawn over it
+      fillTiledSeg(ctx, th.img, x, -4, gapTop, false);
+      fillTiledSeg(ctx, th.img, x, gapBot, H + 4, true);
+      ctx.strokeRect(x + 0.5, -4, WALL_W - 1, gapTop + 4);
+      ctx.strokeRect(x + 0.5, gapBot, WALL_W - 1, H - gapBot + 4);
     } else {
+      // fallback: recoloured plain bar (covers the frames before the sprite loads)
       ctx.fillRect(x, -4, WALL_W, gapTop + 4);
       ctx.strokeRect(x + 0.5, -4, WALL_W - 1, gapTop + 4);
       ctx.fillRect(x, gapBot, WALL_W, H - gapBot + 4);
