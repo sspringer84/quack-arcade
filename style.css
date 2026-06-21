@@ -19,6 +19,13 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   /* avoid mobile pull-to-refresh / overscroll fighting the games */
   overscroll-behavior: none;
+  /* iOS: a held tap must not start a text selection or pop the
+     Copy/Paste/Look-Up callout — this is a game surface, not a document */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -32,6 +39,10 @@ body {
   display: block;
   /* critical: stop the browser from scrolling/zooming on touch gestures */
   touch-action: none;
+  /* belt-and-suspenders for the iOS long-press callout (see html,body) */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 #mute {
