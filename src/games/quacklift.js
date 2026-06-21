@@ -9,6 +9,15 @@
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 
+// rescued-duckling sprite (Flux Schnell, chroma-keyed); canvas primitive is the
+// fallback until it loads. Sebastian's pick: the little sitting duckling.
+const duckImg = typeof Image !== "undefined" ? new Image() : null;
+let duckImgReady = false;
+if (duckImg) {
+  duckImg.onload = () => (duckImgReady = true);
+  duckImg.src = "assets/duckling.png";
+}
+
 const DUCK_R = 22;
 const DUCK_RIDE = 14; // how far above the surface the duck floats
 const WATER_RISE = 360; // px/s the surface climbs while held
@@ -342,10 +351,20 @@ export function quackLift(engine, goHub) {
     ctx.stroke();
     ctx.restore();
 
-    // --- ducklings (drawn behind the duck) ---
+    // --- ducklings (drawn behind the duck): generated sprite, primitive fallback ---
     for (const k of kueken) {
       if (k.got) continue;
       const by = k.y + Math.sin(t * 3 + k.bob) * 3;
+      if (duckImgReady) {
+        const h = KR * 2.8; // render height (px) — body roughly fills the pickup radius
+        const w = h * (duckImg.naturalWidth / duckImg.naturalHeight);
+        ctx.save();
+        ctx.shadowColor = "#ffe66b";
+        ctx.shadowBlur = 10;
+        ctx.drawImage(duckImg, k.x - w / 2, by - h / 2, w, h);
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       ctx.shadowColor = "#ffe66b";
       ctx.shadowBlur = 12;
