@@ -19,29 +19,40 @@ if (duckImg) {
   duckImg.src = "assets/duckling.png";
 }
 
-// Generated neon wall textures (Flux Schnell, chroma-keyed), tiled per segment.
-// Each wall picks a THEME (colour + texture). Segment height becomes a TILE COUNT
-// (mirror-flipped each row so vertical motifs self-tile without a visible seam),
-// never a stretch, so a tall and a short segment share identical crisp pixels.
-// The canvas fallback recolours the plain bar until/unless the PNG loads, so the
-// geometry/collision never depend on an asset existing.
-const TILE_H = 192; // on-screen height of one texture tile (asset shipped 58x192)
-const THEME_DEFS = [
-  { name: "magenta-conduit", color: "#ff4fa3", fill: "rgba(255,79,163,0.16)" },
-  { name: "cyan-circuit", color: "#36e6ff", fill: "rgba(54,230,255,0.16)" },
-  { name: "violet-laser", color: "#9b5cff", fill: "rgba(155,92,255,0.16)" },
-  // gold-rail / emerald-reed generated + in the pool, held back (Sebastian's pick:
-  // the three crispest beams). Re-add a {name,color,fill} line to bring one back.
-];
-const THEMES = THEME_DEFS.map((d) => {
-  const th = { ...d, img: null, ready: false };
+// Wall MATERIAL: ice or stone — a cave hazard that fits "rette die Entchen" better than
+// neon. Each wall is a stalactite hanging from the top + a stalagmite rising from the
+// bottom, the tip pointing at the gap; the base sits at the screen edge. Sprites are
+// Sebastian's reference crops, scaled to each segment (spikes are elongated, so they
+// stretch naturally). Materials run in ZONES (a stretch of ice, then a stretch of stone).
+// A plain tapered canvas spike is the fallback until a sprite loads.
+const MATERIALS = ["ice", "stone"];
+const ZONE_LEN = 5; // walls per material zone before switching ice <-> stone
+const SPIKE_H = 150; // natural height of the stalactite/stalagmite tip (NOT stretched to the segment)
+const MAT_COL = { ice: "#bfe9ff", stone: "#aeb6ba" }; // fallback spike tint per material
+// wall body = a rock/ice column (screen edge → near gap), brighter toward the gap. The
+// spike tip is drawn over the gap end at its natural aspect so it never looks stretched.
+const MAT_BODY = {
+  ice: { edge: "#1c3145", gap: "#7bbcd8" },   // deep → lit ice (toned down from neon-bright)
+  stone: { edge: "#23282c", gap: "#717d83" }, // dark → lit grey rock (matches Kenney spikes)
+};
+const SPRITES = {};
+for (const m of MATERIALS) for (const part of ["stalactite", "stalagmite"]) {
+  const key = m + "-" + part, s = { img: null, ready: false };
   if (typeof Image !== "undefined") {
-    th.img = new Image();
-    th.img.onload = () => (th.ready = true);
-    th.img.src = "assets/walls/" + d.name + ".png";
+    s.img = new Image();
+    s.img.onload = () => (s.ready = true);
+    s.img.src = "assets/walls/" + key + ".png";
   }
-  return th;
-});
+  SPRITES[key] = s;
+}
+
+// cave backdrop (Kenney/OGA CC0) — tiled behind the gameplay for a cooler cave mood.
+const caveBg = typeof Image !== "undefined" ? new Image() : null;
+let caveBgReady = false;
+if (caveBg) {
+  caveBg.onload = () => (caveBgReady = true);
+  caveBg.src = "assets/cave-bg.png";
+}
 
 const DUCK_R = 22;
 const DUCK_RIDE = 14; // how far above the surface the duck floats
@@ -54,7 +65,8 @@ const K_PROB = 0.8; // chance a wall also spawns a duckling
 const K_OFF_MILD = 0.12; // mild offset from gap centre (fraction of band) — in-gap, collectible
 const K_OFF_RISK = 0.17; // danger offset (fraction of band) — off the safe line, recover-or-die
 const MULT_MAX = 9;
-const WALL_W = 58; // neon wall thickness
+const WALL_W = 58; // wall visual thickness (spike base width)
+const HITBOX_W = 16; // deadly core width (thin strip) — the wide spike is decoration, only the core kills
 const SCROLL0 = 140; // initial scroll speed (px/s)
 const SCROLL_RAMP = 4; // +px/s of scroll per wall cleared
 const GAP0 = 0.34; // initial gap height (fraction of playable band)
@@ -133,33 +145,12 @@ export function quackLift(engine, goHub) {
     return (bot - top) * frac;
   }
 
-  // wall visual style — bars dominate early, stalactite/gate get likelier with
-  // score. The opener (no prev) is always a plain bar so the first gate reads clean.
-  function chooseStyle(prev) {
-    if (!prev) return "bar";
-    // __STYLE_FORCE__ is a headless-test hook (dead in prod) to exercise variety
-    const force = typeof window !== "undefined" && window.__STYLE_FORCE__;
-    const variety = force ? 0.9 : clampN(score * 0.02, 0, 0.55);
-    const r = Math.random();
-    if (r < variety * 0.5) return "stalactite";
-    if (r < variety) return "gate";
-    return "bar";
-  }
-
-  // wall SKIN (colour + texture) — orthogonal to style. Blooms EARLY (from wall 2)
-  // so a run shows several neon colours fast, while SHAPE stays score-gated/calm.
-  // Opener is theme 0 (its fallback is the original magenta bar). Never repeats the
-  // previous theme, and the first few post-opener walls stay in the two calmest
-  // colours before the full set opens up. __THEME_FORCE__/__THEME_ALL__ are
-  // headless-test hooks (dead in prod).
-  function chooseTheme(prev, count) {
-    if (typeof window !== "undefined" && window.__THEME_FORCE__ != null)
-      return window.__THEME_FORCE__;
-    if (!prev) return 0;
-    const n = THEMES.length;
-    if (typeof window !== "undefined" && window.__THEME_ALL__) return count % n;
-    const pool = count < 4 ? Math.min(2, n) : n; // calm colours first, full set by ~wall 5
-    return (prev.theme + 1 + Math.floor(Math.random() * (pool - 1))) % pool;
+  // wall MATERIAL runs in ZONES: ZONE_LEN walls of ice, then ZONE_LEN of stone, on and
+  // on. __MAT_FORCE__ pins a material; __MAT_ALL__ alternates every wall (test coverage).
+  function chooseMaterial(count) {
+    if (typeof window !== "undefined" && window.__MAT_FORCE__) return window.__MAT_FORCE__;
+    if (typeof window !== "undefined" && window.__MAT_ALL__) return MATERIALS[count % MATERIALS.length];
+    return MATERIALS[Math.floor(count / ZONE_LEN) % MATERIALS.length];
   }
 
   function spawnWall(W, H) {
@@ -181,8 +172,7 @@ export function quackLift(engine, goHub) {
     const x = (prev ? prev.x : duckX(W)) + STEP;
     const wall = {
       x, gapY, gh, passed: false,
-      style: chooseStyle(prev),
-      theme: chooseTheme(prev, wallCount++),
+      material: chooseMaterial(wallCount++),
       baseGapY: gapY, driftAmp: 0, driftPhase: 0,
       nearGlow: 0, minMargin: undefined,
     };
@@ -204,13 +194,10 @@ export function quackLift(engine, goHub) {
     walls.push(wall);
     if (QA) {
       QA.lead = prev === null ? x - duckX(W) : QA.lead;
-      QA.wallStyles = QA.wallStyles || {};
-      QA.wallStyles[wall.style] = true;
-      QA.wallThemes = QA.wallThemes || {};
-      QA.wallThemes[wall.theme] = true;
-      if (QA.firstTheme === undefined) QA.firstTheme = wall.theme;
-      QA.themeSeq = QA.themeSeq || [];
-      if (QA.themeSeq.length < 300) QA.themeSeq.push(wall.theme);
+      QA.wallMaterials = QA.wallMaterials || {};
+      QA.wallMaterials[wall.material] = true;
+      QA.materialSeq = QA.materialSeq || [];
+      if (QA.materialSeq.length < 300) QA.materialSeq.push(wall.material);
     }
     if (Math.random() < K_PROB) spawnDuckling(W, H, wall);
   }
@@ -377,8 +364,10 @@ export function quackLift(engine, goHub) {
     for (const wl of walls) {
       const gapTop = wl.gapY - wl.gh / 2;
       const gapBot = wl.gapY + wl.gh / 2;
-      // horizontal overlap with the duck column
-      if (wl.x < dx + DUCK_R && wl.x + WALL_W > dx - DUCK_R) {
+      // collision uses a THIN central hitbox strip, not the full visual width — the
+      // wide neon gate is decoration; only its glowing core is deadly (forgiving feel).
+      const hbL = wl.x + (WALL_W - HITBOX_W) / 2;
+      if (hbL < dx + DUCK_R && hbL + HITBOX_W > dx - DUCK_R) {
         if (duck.y - DUCK_R < gapTop || duck.y + DUCK_R > gapBot) {
           // hit -> death sink sequence (highscore banked now, so best survives)
           state = "dying";
@@ -466,103 +455,65 @@ export function quackLift(engine, goHub) {
       for (const wl of walls)
         if (wl.x + WALL_W > dx - DUCK_R && (!next || wl.x < next.x)) next = wl;
       QA.nextGapY = next ? next.gapY : null;
+      // test hook: logical canvas size + each wall's column + gap bounds + material
+      QA.W = W; QA.H = H;
+      QA.wallsX = walls.map((wl) => ({ x: wl.x, gt: wl.gapY - wl.gh / 2, gb: wl.gapY + wl.gh / 2, mat: wl.material }));
     }
   }
 
-  // Fill a wall segment [y0,y1] by vertically tiling a texture, clipped to the exact
-  // segment bounds (no pixel spills past the gap edge — collision + visuals share one
-  // source of truth). Every other tile is mirror-flipped so a continuous vertical motif
-  // self-tiles without a seam. Anchored at the gap edge so the texture stays locked to
-  // the gap as it drifts. Width is locked to WALL_W (never stretched).
-  function fillTiledSeg(ctx, img, x, y0, y1, bottomAnchor) {
-    if (y1 - y0 <= 0) return;
+  // rock/ice body column: a vertical gradient (cEdge at the screen edge → cGap at the
+  // gap end) for the material tint, with the cave-rock texture tiled over it so the body
+  // reads as a massive cave wall (not a flat column). Clipped to the column.
+  function drawColumn(ctx, x, y0, y1, cEdge, cGap, gapAtBottom) {
+    const h = y1 - y0;
+    if (h <= 0) return;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x, y0, WALL_W, y1 - y0);
+    ctx.rect(x, y0, WALL_W, h);
     ctx.clip();
-    ctx.shadowBlur = 0; // the texture doesn't glow; the edge stroke carries the neon
-    if (bottomAnchor) {
-      for (let i = 0, yy = y0; yy < y1; yy += TILE_H, i++) drawTile(ctx, img, x, yy, i & 1);
-    } else {
-      for (let i = 0, yy = y1; yy > y0; yy -= TILE_H, i++) drawTile(ctx, img, x, yy - TILE_H, i & 1);
+    const g = ctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, gapAtBottom ? cEdge : cGap);
+    g.addColorStop(1, gapAtBottom ? cGap : cEdge);
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y0, WALL_W, h);
+    if (caveBgReady) {
+      ctx.globalAlpha = 0.55; // rock grain over the tint
+      const tH = 230;
+      for (let ty = Math.floor(y0 / tH) * tH; ty < y1; ty += tH) ctx.drawImage(caveBg, x - 44, ty, 230, tH);
     }
     ctx.restore();
   }
-  function drawTile(ctx, img, x, y, flip) {
-    if (flip) {
-      ctx.save();
-      ctx.translate(0, y + TILE_H);
-      ctx.scale(1, -1);
-      ctx.drawImage(img, x, 0, WALL_W, TILE_H);
-      ctx.restore();
-    } else {
-      ctx.drawImage(img, x, y, WALL_W, TILE_H);
-    }
+  // a stalactite/stalagmite sprite at NATURAL aspect, or a flat tapered fallback.
+  function drawTip(ctx, key, mat, x, y0, h, pointDown) {
+    const s = SPRITES[key];
+    if (s && s.ready) { ctx.drawImage(s.img, x, y0, WALL_W, h); return; }
+    ctx.save();
+    ctx.fillStyle = MAT_COL[mat] || "#cccccc";
+    ctx.beginPath();
+    if (pointDown) { ctx.moveTo(x, y0); ctx.lineTo(x + WALL_W, y0); ctx.lineTo(x + WALL_W / 2, y0 + h); }
+    else { ctx.moveTo(x + WALL_W / 2, y0); ctx.lineTo(x + WALL_W, y0 + h); ctx.lineTo(x, y0 + h); }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
 
-  // --- one wall, drawn per visual style + theme. Gap geometry is identical across all. ---
+  // --- one wall: ice or stone — a rock/ice COLUMN from the screen edge ending in a
+  //     wide-base stalactite/stalagmite TIP at the gap (tip drawn at natural aspect, so
+  //     it never looks stretched). Gap geometry is identical to before. ---
   function drawWall(ctx, wl, H) {
     const gapTop = wl.gapY - wl.gh / 2;
     const gapBot = wl.gapY + wl.gh / 2;
-    const x = wl.x;
-    const th = THEMES[wl.theme] || THEMES[0];
-    ctx.save();
-    ctx.shadowColor = th.color;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = th.fill;
-    ctx.strokeStyle = th.color;
-    ctx.lineWidth = 2;
-    if (wl.style === "stalactite") {
-      // each half tapers to a point at its gap edge (themed colour; no texture)
-      ctx.beginPath();
-      ctx.moveTo(x, -4);
-      ctx.lineTo(x + WALL_W, -4);
-      ctx.lineTo(x + WALL_W, gapTop - 20);
-      ctx.lineTo(x + WALL_W / 2, gapTop);
-      ctx.lineTo(x, gapTop - 20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, H + 4);
-      ctx.lineTo(x + WALL_W, H + 4);
-      ctx.lineTo(x + WALL_W, gapBot + 20);
-      ctx.lineTo(x + WALL_W / 2, gapBot);
-      ctx.lineTo(x, gapBot + 20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    } else if (th.ready) {
-      // generated neon body, tiled into each segment; themed neon edge drawn over it
-      fillTiledSeg(ctx, th.img, x, -4, gapTop, false);
-      fillTiledSeg(ctx, th.img, x, gapBot, H + 4, true);
-      ctx.strokeRect(x + 0.5, -4, WALL_W - 1, gapTop + 4);
-      ctx.strokeRect(x + 0.5, gapBot, WALL_W - 1, H - gapBot + 4);
-    } else {
-      // fallback: recoloured plain bar (covers the frames before the sprite loads)
-      ctx.fillRect(x, -4, WALL_W, gapTop + 4);
-      ctx.strokeRect(x + 0.5, -4, WALL_W - 1, gapTop + 4);
-      ctx.fillRect(x, gapBot, WALL_W, H - gapBot + 4);
-      ctx.strokeRect(x + 0.5, gapBot, WALL_W - 1, H - gapBot + 4);
-    }
-    ctx.restore();
-    // glowing gap edges (the "safe" lane). Gate = brighter rounded frame.
-    const baseGlow = wl.style === "gate" ? 0.9 : 0.5;
-    const glow = Math.max(baseGlow, wl.nearGlow || 0);
-    ctx.save();
-    if (wl.style === "gate" || wl.nearGlow > 0) {
-      ctx.shadowColor = "#36e6ff";
-      ctx.shadowBlur = (wl.style === "gate" ? 8 : 0) + (wl.nearGlow || 0) * 22;
-    }
-    ctx.strokeStyle = `rgba(54,230,255,${glow})`;
-    ctx.lineWidth = wl.style === "gate" ? 3 : 2;
-    ctx.beginPath();
-    ctx.moveTo(x, gapTop);
-    ctx.lineTo(x + WALL_W, gapTop);
-    ctx.moveTo(x, gapBot);
-    ctx.lineTo(x + WALL_W, gapBot);
-    ctx.stroke();
-    ctx.restore();
+    const x = wl.x, m = wl.material;
+    const b = MAT_BODY[m] || MAT_BODY.stone;
+    // top segment: column [-4 .. tipTop] + stalactite [tipTop .. gapTop]
+    const tipH1 = Math.min(SPIKE_H, gapTop + 4);
+    const tipTop = gapTop - tipH1;
+    drawColumn(ctx, x, -4, tipTop, b.edge, b.gap, true);
+    drawTip(ctx, m + "-stalactite", m, x, tipTop, tipH1, true);
+    // bottom segment: stalagmite [gapBot .. tipBot] + column [tipBot .. H+4]
+    const tipH2 = Math.min(SPIKE_H, H + 4 - gapBot);
+    const tipBot = gapBot + tipH2;
+    drawTip(ctx, m + "-stalagmite", m, x, gapBot, tipH2, false);
+    drawColumn(ctx, x, tipBot, H + 4, b.edge, b.gap, false);
   }
 
   function render(e, ctx) {
@@ -571,25 +522,15 @@ export function quackLift(engine, goHub) {
     const { top, bot } = band(H);
     const dx = duckX(W);
 
-    // --- neon dusk background + faint grid ---
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#0a1224");
-    bg.addColorStop(1, "#06070f");
-    ctx.fillStyle = bg;
+    // --- cave backdrop: dark base + tiled cave wall, slow horizontal parallax ---
+    ctx.fillStyle = "#0a0f16";
     ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(54,230,255,0.06)";
-    ctx.lineWidth = 1;
-    for (let gx = (t * 18) % 64; gx < W; gx += 64) {
-      ctx.beginPath();
-      ctx.moveTo(gx, 0);
-      ctx.lineTo(gx, H);
-      ctx.stroke();
-    }
-    for (let gy = (t * 9) % 64; gy < H; gy += 64) {
-      ctx.beginPath();
-      ctx.moveTo(0, gy + 0.5);
-      ctx.lineTo(W, gy + 0.5);
-      ctx.stroke();
+    if (caveBgReady) {
+      const ts = H * 0.92, off = (t * 10) % ts;
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      for (let bx = -off; bx < W; bx += ts) ctx.drawImage(caveBg, bx, 0, ts, ts);
+      ctx.restore();
     }
 
     // --- neon walls (per style) ---
