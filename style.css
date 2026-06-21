@@ -66,6 +66,31 @@ body {
   background: rgba(255, 255, 255, 0.22);
 }
 
+/* music-only toggle, stacked directly under the master mute (top-right column,
+   so the in-game HUD only needs to clear one button width) */
+#music {
+  position: fixed;
+  top: calc(max(12px, env(safe-area-inset-top)) + 52px);
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 10;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#music:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+#music[aria-pressed="false"] {
+  opacity: 0.4; /* music currently muted */
+}
+
 /* mic (rubber-duck-squeak) controller — bottom-center, thumb-reachable */
 #mic {
   position: fixed;

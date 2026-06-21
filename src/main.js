@@ -22,7 +22,10 @@ if (hubBg) {
 const QA =
   typeof location !== "undefined" &&
   new URLSearchParams(location.search).has("qa");
-if (QA) window.__QA__ = { jumps: [], states: [] };
+if (QA) {
+  window.__QA__ = { jumps: [], states: [] };
+  window.__audioState__ = () => audio.debugState(); // headless audio assertions
+}
 // mic calibration readout: open with ?cal=1 to see live floor/level/trigger
 const CAL =
   typeof location !== "undefined" &&
@@ -41,6 +44,15 @@ const muteBtn = document.getElementById("mute");
 muteBtn.addEventListener("click", () => {
   const m = audio.toggleMuted();
   muteBtn.textContent = m ? "🔇" : "🔊";
+});
+
+// dedicated music toggle: silences only the arcade bed, sfx stay (the loop gets
+// old fast — this lets you keep the squeaks/quacks while killing the music)
+const musicBtn = document.getElementById("music");
+musicBtn.addEventListener("click", () => {
+  const m = audio.toggleMusicMuted();
+  musicBtn.setAttribute("aria-pressed", m ? "false" : "true");
+  musicBtn.title = m ? "Musik an" : "Musik aus";
 });
 
 // --- mic (rubber-duck-squeak) controller UI ---
@@ -71,6 +83,9 @@ const setStatus = (t) => {
 
 function renderMicState(st) {
   if (QA) window.__QA__.states.push(st);
+  // the arcade bed ducks to silence while the mic is live, then returns — a
+  // continuous tone would poison the AEC-off squeak detector in DUCK & COVER
+  audio.setMicSuspend(st === "requesting" || st === "calibrating" || st === "ready" || st === "noisy");
   if (!micEl) return;
   const press = (v) => micToggle.setAttribute("aria-pressed", v);
   if (st !== "calibrating") micEl.classList.remove("pulse");

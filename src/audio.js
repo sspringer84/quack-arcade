@@ -108,6 +108,8 @@ let musicOn = false;
 let musicTimer = null;
 let musicStep = 0;
 let musicNextTime = 0;
+let musicMuted = false; // dedicated music toggle (separate from the master mute)
+let micSuspend = false; // music ducks to silence while the mic is live (DC squeak detector)
 const MUSIC_VOL = 0.07; // master level for the whole bed — keep it a background wash
 // A-minor flavoured: a bright square arp over a rounder triangle bass.
 const MUSIC_ARP = [
@@ -116,9 +118,34 @@ const MUSIC_ARP = [
 ];
 const MUSIC_BASS = [110.0, 146.83, 130.81, 164.81];
 
+// music is audible only when nothing is silencing it: not the master mute, not
+// the dedicated music toggle, and not the mic-suspend (DUCK & COVER squeak window).
+function musicAudible() {
+  return !muted && !musicMuted && !micSuspend;
+}
 function applyMusicMute() {
   if (musicMaster && ctx)
-    musicMaster.gain.setTargetAtTime(muted ? 0 : MUSIC_VOL, ctx.currentTime, 0.03);
+    musicMaster.gain.setTargetAtTime(musicAudible() ? MUSIC_VOL : 0, ctx.currentTime, 0.03);
+}
+export function toggleMusicMuted() {
+  musicMuted = !musicMuted;
+  applyMusicMute();
+  return musicMuted;
+}
+export function isMusicMuted() {
+  return musicMuted;
+}
+// the mic controller calls this so the bed silences while squeaks are detected
+// (AEC is off — a continuous tone would poison detection) and returns afterwards.
+export function setMicSuspend(on) {
+  micSuspend = !!on;
+  applyMusicMute();
+}
+export function musicPlaying() {
+  return musicOn && musicAudible();
+}
+export function debugState() {
+  return { muted, musicMuted, micSuspend, musicOn, gain: musicMaster ? musicMaster.gain.value : null };
 }
 
 function musicNote(time, freq, dur, type, vol) {
@@ -152,7 +179,7 @@ export function startMusic() {
   if (!ctx || musicOn) return; // needs an unlocked context; idempotent
   musicOn = true;
   musicMaster = ctx.createGain();
-  musicMaster.gain.value = muted ? 0 : MUSIC_VOL;
+  musicMaster.gain.value = musicAudible() ? MUSIC_VOL : 0;
   musicMaster.connect(ctx.destination);
   musicStep = 0;
   musicNextTime = ctx.currentTime + 0.06;

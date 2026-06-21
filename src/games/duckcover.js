@@ -869,8 +869,10 @@ export function duckCover(engine, goHub, micUi) {
   function onPress(e, ev) {
     const { cw, ox } = col(e.width);
     const p = e.input.pointer;
-    // top-right "hub" tap returns to the menu
-    if (ev && ev.clientX !== undefined && p.x > ox + cw - 70 && p.y < 40) {
+    // top-right "hub" tap returns to the menu. Generous box: it must cover the
+    // whole visible "‹ hub" label (drawn around W-104..W-64) plus finger slop —
+    // the old 70x40 zone missed the left half of the label.
+    if (ev && ev.clientX !== undefined && p.x > ox + cw - 116 && p.y < 60) {
       goHub();
       return;
     }
@@ -906,7 +908,7 @@ export function duckCover(engine, goHub, micUi) {
   return {
     enter() {
       reset();
-      audio.stopMusic(); // mic squeak detector runs here (AEC off) — no music bed
+      audio.startMusic(); // DC has the bed too; it ducks automatically while the mic is live
       micUi && micUi.show(mic);
     },
     exit() {
