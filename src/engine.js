@@ -12,6 +12,10 @@ export class Engine {
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
+    // device safe-area insets (notch / home-indicator / rounded corners), read
+    // from env(safe-area-inset-*). HUDs offset by these so nothing hides under
+    // the status bar or sits beneath the fixed mute button. 0 in headless tests.
+    this.safe = { top: 0, right: 0, bottom: 0, left: 0 };
     this.input = {
       held: false,
       justPressed: false,
@@ -103,7 +107,29 @@ export class Engine {
     this.input.pointer.y = e.clientY - r.top;
   }
 
+  _readSafeInsets() {
+    if (typeof document === "undefined") return;
+    let p = this._safeProbe;
+    if (!p) {
+      p = document.createElement("div");
+      p.style.cssText =
+        "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;" +
+        "pointer-events:none;padding:env(safe-area-inset-top) " +
+        "env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);";
+      document.body.appendChild(p);
+      this._safeProbe = p;
+    }
+    const cs = getComputedStyle(p);
+    this.safe = {
+      top: parseFloat(cs.paddingTop) || 0,
+      right: parseFloat(cs.paddingRight) || 0,
+      bottom: parseFloat(cs.paddingBottom) || 0,
+      left: parseFloat(cs.paddingLeft) || 0,
+    };
+  }
+
   _resize() {
+    this._readSafeInsets();
     const dpr = window.devicePixelRatio || 1;
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;

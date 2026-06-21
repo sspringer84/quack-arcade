@@ -685,23 +685,26 @@ export function duckCover(engine, goHub, micUi) {
     ctx.fillStyle = tg;
     ctx.fillRect(ox, 0, cw, 78);
 
+    // safe-area aware; right column clamps left of the fixed mute button
+    const st = e.safe.top, sl = e.safe.left;
+    const hudR = Math.min(ox + cw - 14, W - 64 - e.safe.right);
     ctx.fillStyle = "#dfe6f3";
     ctx.font = "bold 22px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("bugs fixed: " + score, ox + 14, 12);
+    ctx.fillText("bugs fixed: " + score, ox + 14 + sl, 12 + st);
     // right column: hub link, the points score, and the points record ("best").
     // best pairs with score (both points-scale) — never under the raw bug count.
     ctx.textAlign = "right";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("‹ hub", ox + cw - 14, 14);
+    ctx.fillText("‹ hub", hudR, 14 + st);
     ctx.fillStyle = "#ffd23f";
     ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("score " + points.toLocaleString(), ox + cw - 14, 36);
+    ctx.fillText("score " + points.toLocaleString(), hudR, 36 + st);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("best " + best.toLocaleString(), ox + cw - 14, 54);
+    ctx.fillText("best " + best.toLocaleString(), hudR, 54 + st);
     ctx.textAlign = "left";
     // combo chip + draining timer bar — only while a chain is live
     if (combo >= 2) {

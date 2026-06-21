@@ -410,22 +410,24 @@ export function quackLift(engine, goHub) {
     }
     ctx.globalAlpha = 1;
 
-    // --- HUD ---
+    // --- HUD --- (safe-area aware; right column clears the fixed mute button)
+    const st = e.safe.top, sl = e.safe.left;
+    const hudR = W - 64 - e.safe.right;
     ctx.fillStyle = "#dfe6f3";
     ctx.font = "bold 22px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("lift: " + score, 16, 12);
+    ctx.fillText("lift: " + score, 16 + sl, 12 + st);
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffd23f";
     ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("score " + pts.toLocaleString(), W - 14, 14);
+    ctx.fillText("score " + pts.toLocaleString(), hudR, 14 + st);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("best " + best.toLocaleString(), W - 14, 36);
+    ctx.fillText("best " + best.toLocaleString(), hudR, 36 + st);
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(223,230,243,0.55)";
-    ctx.fillText("‹ hub", 16, 44);
+    ctx.fillText("‹ hub", 16 + sl, 44 + st);
 
     // combo multiplier chip (centre top) — flares on tier-up
     if (mult > 1) {
@@ -437,7 +439,7 @@ export function quackLift(engine, goHub) {
       ctx.shadowBlur = 9 + flash * 12;
       ctx.fillStyle = flash > 0 ? "#9fe9ff" : "#36e6ff"; // soft tint, not a white blast
       ctx.font = `400 ${Math.round(24 * sc)}px "Audiowide", system-ui, sans-serif`;
-      ctx.fillText("x" + mult, W / 2, 26);
+      ctx.fillText("x" + mult, W / 2, 26 + st);
       ctx.restore();
     }
 
