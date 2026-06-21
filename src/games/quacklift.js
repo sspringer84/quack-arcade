@@ -294,7 +294,7 @@ export function quackLift(engine, goHub) {
       deathFlash = Math.max(0, deathFlash - dt * 2);
       duck.vy += 700 * dt;
       duck.y += duck.vy * dt;
-      deathRot += dt * 7; // a fuller tumble as she purzelt down
+      deathRot += dt * 4;
       stepFx(dt);
       if (deathT >= DEATH_DUR) state = "over";
       if (QA) QA.state = state;
@@ -625,9 +625,7 @@ export function quackLift(engine, goHub) {
     // --- the duck riding the surface (leans into vertical motion; spins on death) ---
     const squash = clampN(1 + duck.vy * 0.0008 + popT * 0.5, 0.82, 1.4);
     const rot = state === "dying" ? deathRot : clampN(duck.vy * LEAN_K, -LEAN_MAX, LEAN_MAX);
-    // on death she tumbles down in the same sad pose as DUCK & COVER's game over
-    const pose = state === "dying" ? "sad" : "default";
-    drawDuck(ctx, dx, duck.y, DUCK_R * 1.5, { squash, rot, pose });
+    drawDuck(ctx, dx, duck.y, DUCK_R * 1.5, { squash, rot, pose: "default" });
 
     // --- pickup rings + sparkle particles + score popups (in front of the duck) ---
     for (const r of rings) {
