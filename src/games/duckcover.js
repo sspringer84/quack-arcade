@@ -15,6 +15,7 @@
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 import { createMic } from "../mic.js";
+import { wrapText } from "../engine.js";
 
 // the neon-arcade art fills the desktop side-margins (cover-fit, occluded by the
 // play column → only the margins show; absent on mobile where there is no margin)
@@ -762,28 +763,46 @@ export function duckCover(engine, goHub, micUi) {
     const a = clampN(onboard / 700, 0, 1);
     const cy = H * 0.2;
     const pw = Math.min(W * 0.92, 400);
-    const ph = 60;
+    const innerW = pw - 28;
+    const tSize = Math.min(W * 0.05, 19);
+    const sSize = Math.min(W * 0.034, 13);
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.fillStyle = "rgba(8,10,16,0.82)";
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(W / 2 - pw / 2, cy - ph / 2, pw, ph, 14);
-    else ctx.rect(W / 2 - pw / 2, cy - ph / 2, pw, ph);
-    ctx.fill();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#ffd23f";
-    ctx.font = `bold ${Math.min(W * 0.05, 19)}px system-ui, sans-serif`;
-    ctx.fillText("🦆 Echte Gummiente quietschen = Sprung", W / 2, cy - 9);
-    ctx.fillStyle = "rgba(223,230,243,0.85)";
-    ctx.font = `${Math.min(W * 0.034, 13)}px system-ui, sans-serif`;
-    ctx.fillText(
+    // wrap both lines first so the panel can size to fit on a narrow phone
+    ctx.font = `bold ${tSize}px system-ui, sans-serif`;
+    const tLines = wrapText(ctx, "🦆 Echte Gummiente quietschen = Sprung", innerW);
+    ctx.font = `${sSize}px system-ui, sans-serif`;
+    const sLines = wrapText(
+      ctx,
       isTouch
         ? "Mikro unten aktivieren · sonst tippen · Joystick lenkt"
         : "Mikro aktivieren · sonst Leertaste · ◀ ▶ lenken",
-      W / 2,
-      cy + 13
+      innerW
     );
+    const tlh = tSize * 1.3,
+      slh = sSize * 1.4;
+    const ph = 20 + tLines.length * tlh + sLines.length * slh;
+    const top = cy - ph / 2;
+    ctx.fillStyle = "rgba(8,10,16,0.82)";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(W / 2 - pw / 2, top, pw, ph, 14);
+    else ctx.rect(W / 2 - pw / 2, top, pw, ph);
+    ctx.fill();
+    let y = top + 12 + tlh / 2;
+    ctx.fillStyle = "#ffd23f";
+    ctx.font = `bold ${tSize}px system-ui, sans-serif`;
+    tLines.forEach((ln) => {
+      ctx.fillText(ln, W / 2, y);
+      y += tlh;
+    });
+    ctx.fillStyle = "rgba(223,230,243,0.85)";
+    ctx.font = `${sSize}px system-ui, sans-serif`;
+    sLines.forEach((ln) => {
+      ctx.fillText(ln, W / 2, y);
+      y += slh;
+    });
     ctx.restore();
   }
 
@@ -818,16 +837,29 @@ export function duckCover(engine, goHub, micUi) {
     ctx.fillStyle = "rgba(8,10,16,0.72)";
     ctx.fillRect(0, H * 0.32, W, H * 0.36);
     ctx.textAlign = "center";
-    ctx.fillStyle = color;
-    ctx.font = `400 ${Math.min(W * 0.085, 40)}px "Audiowide", system-ui, sans-serif`;
     ctx.textBaseline = "middle";
-    ctx.fillText(title, W / 2, H * 0.43);
+    const maxW = W * 0.86;
+    // title (wrapped, big)
+    const tSize = Math.min(W * 0.085, 40);
+    ctx.fillStyle = color;
+    ctx.font = `400 ${tSize}px "Audiowide", system-ui, sans-serif`;
+    const tLines = wrapText(ctx, title, maxW);
+    tLines.forEach((ln, i) =>
+      ctx.fillText(ln, W / 2, H * 0.43 + (i - (tLines.length - 1) / 2) * tSize * 1.15)
+    );
+    // sub (wrapped, smaller) — stacked below the title block
+    const sSize = Math.min(W * 0.038, 16);
     ctx.fillStyle = "#cfd6e6";
-    ctx.font = `${Math.min(W * 0.038, 16)}px 'JetBrains Mono', ui-monospace, monospace`;
-    ctx.fillText(sub, W / 2, H * 0.52);
+    ctx.font = `${sSize}px 'JetBrains Mono', ui-monospace, monospace`;
+    const sLines = wrapText(ctx, sub, maxW);
+    const sy = H * 0.52;
+    sLines.forEach((ln, i) => ctx.fillText(ln, W / 2, sy + i * sSize * 1.4));
     if (foot) {
       ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.fillText(foot, W / 2, H * 0.59);
+      let fy = sy + sLines.length * sSize * 1.4 + sSize * 0.4;
+      wrapText(ctx, foot, maxW).forEach((ln, i) =>
+        ctx.fillText(ln, W / 2, fy + i * sSize * 1.4)
+      );
     }
   }
 
@@ -871,6 +903,7 @@ export function duckCover(engine, goHub, micUi) {
   return {
     enter() {
       reset();
+      audio.stopMusic(); // mic squeak detector runs here (AEC off) — no music bed
       micUi && micUi.show(mic);
     },
     exit() {

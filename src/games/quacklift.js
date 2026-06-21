@@ -8,6 +8,7 @@
 
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
+import { wrapText } from "../engine.js";
 
 // rescued-duckling sprite (Flux Schnell, chroma-keyed); canvas primitive is the
 // fallback until it loads. Sebastian's pick: the little sitting duckling.
@@ -217,7 +218,7 @@ export function quackLift(engine, goHub) {
         mult = clampN(1 + collected, 1, MULT_MAX);
         const gain = 50 * mult;
         pts += gain;
-        if (mult > prevMult) flash = 0.4;
+        if (mult > prevMult) flash = 0.28;
         popups.push({ x: dx + DUCK_R, y: duck.y, txt: "+" + gain, life: 0.8 });
         spawnSparkle(k.x, k.y);
         audio.quack(520 + mult * 45);
@@ -431,10 +432,10 @@ export function quackLift(engine, goHub) {
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const sc = 1 + flash * 0.8;
+      const sc = 1 + flash * 0.3; // gentle tier-up pop (toned down — was too much)
       ctx.shadowColor = "#36e6ff";
-      ctx.shadowBlur = 10 + flash * 30;
-      ctx.fillStyle = flash > 0 ? "#ffffff" : "#36e6ff";
+      ctx.shadowBlur = 9 + flash * 12;
+      ctx.fillStyle = flash > 0 ? "#9fe9ff" : "#36e6ff"; // soft tint, not a white blast
       ctx.font = `400 ${Math.round(24 * sc)}px "Audiowide", system-ui, sans-serif`;
       ctx.fillText("x" + mult, W / 2, 26);
       ctx.restore();
@@ -451,16 +452,29 @@ export function quackLift(engine, goHub) {
     ctx.fillStyle = "rgba(8,10,16,0.72)";
     ctx.fillRect(0, H * 0.32, W, H * 0.36);
     ctx.textAlign = "center";
-    ctx.fillStyle = color;
-    ctx.font = `400 ${Math.min(W * 0.085, 40)}px "Audiowide", system-ui, sans-serif`;
     ctx.textBaseline = "middle";
-    ctx.fillText(title, W / 2, H * 0.43);
+    const maxW = W * 0.86;
+    // title (wrapped, big)
+    const tSize = Math.min(W * 0.085, 40);
+    ctx.fillStyle = color;
+    ctx.font = `400 ${tSize}px "Audiowide", system-ui, sans-serif`;
+    const tLines = wrapText(ctx, title, maxW);
+    tLines.forEach((ln, i) =>
+      ctx.fillText(ln, W / 2, H * 0.43 + (i - (tLines.length - 1) / 2) * tSize * 1.15)
+    );
+    // sub (wrapped, smaller) — stacked below the title block
+    const sSize = Math.min(W * 0.038, 16);
     ctx.fillStyle = "#cfd6e6";
-    ctx.font = `${Math.min(W * 0.038, 16)}px 'JetBrains Mono', ui-monospace, monospace`;
-    ctx.fillText(sub, W / 2, H * 0.52);
+    ctx.font = `${sSize}px 'JetBrains Mono', ui-monospace, monospace`;
+    const sLines = wrapText(ctx, sub, maxW);
+    const sy = H * 0.52;
+    sLines.forEach((ln, i) => ctx.fillText(ln, W / 2, sy + i * sSize * 1.4));
     if (foot) {
       ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.fillText(foot, W / 2, H * 0.59);
+      let fy = sy + sLines.length * sSize * 1.4 + sSize * 0.4;
+      wrapText(ctx, foot, maxW).forEach((ln, i) =>
+        ctx.fillText(ln, W / 2, fy + i * sSize * 1.4)
+      );
     }
   }
 
@@ -489,6 +503,7 @@ export function quackLift(engine, goHub) {
   return {
     enter() {
       reset();
+      audio.startMusic(); // arcade bed (idempotent; needs an unlocked context)
     },
     exit() {},
     onResize() {

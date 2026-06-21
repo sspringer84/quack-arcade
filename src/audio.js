@@ -25,12 +25,14 @@ export function ready() {
 }
 export function setMuted(m) {
   muted = !!m;
+  applyMusicMute();
 }
 export function isMuted() {
   return muted;
 }
 export function toggleMuted() {
   muted = !muted;
+  applyMusicMute();
   return muted;
 }
 
@@ -69,6 +71,91 @@ export function sadQuack() {
   osc.connect(gain).connect(ctx.destination);
   osc.start(t);
   osc.stop(t + 0.5);
+}
+
+// --- looping chiptune bed (arcade ambience) ----------------------------------
+// A subtle 8-bit arpeggio + bass loop, all synthesized. Plays in the hub and
+// Quack Lift; stays OFF in DUCK & COVER (the mic squeak detector runs there with
+// AEC off, so a continuous tone would poison it). Follows the global mute.
+let musicMaster = null;
+let musicOn = false;
+let musicTimer = null;
+let musicStep = 0;
+let musicNextTime = 0;
+const MUSIC_VOL = 0.07; // master level for the whole bed — keep it a background wash
+// A-minor flavoured: a bright square arp over a rounder triangle bass.
+const MUSIC_ARP = [
+  440, 523.25, 659.25, 523.25, 587.33, 659.25, 880, 659.25,
+  440, 523.25, 659.25, 523.25, 392, 493.88, 587.33, 493.88,
+];
+const MUSIC_BASS = [110.0, 146.83, 130.81, 164.81];
+
+function applyMusicMute() {
+  if (musicMaster && ctx)
+    musicMaster.gain.setTargetAtTime(muted ? 0 : MUSIC_VOL, ctx.currentTime, 0.03);
+}
+
+function musicNote(time, freq, dur, type, vol) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, time);
+  g.gain.setValueAtTime(0.0001, time);
+  g.gain.exponentialRampToValueAtTime(vol, time + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  o.connect(g).connect(musicMaster);
+  o.start(time);
+  o.stop(time + dur + 0.02);
+}
+
+// look-ahead scheduler (precise ctx-clock note times, fired from a coarse timer)
+function musicScheduler(stepDur) {
+  if (!musicOn || !ctx) return;
+  while (musicNextTime < ctx.currentTime + 0.12) {
+    const s = musicStep % MUSIC_ARP.length;
+    musicNote(musicNextTime, MUSIC_ARP[s], stepDur * 0.9, "square", 0.4);
+    if (s % 4 === 0)
+      musicNote(musicNextTime, MUSIC_BASS[(s / 4) % MUSIC_BASS.length], stepDur * 3.6, "triangle", 0.85);
+    musicNextTime += stepDur;
+    musicStep++;
+  }
+  musicTimer = setTimeout(() => musicScheduler(stepDur), 25);
+}
+
+export function startMusic() {
+  if (!ctx || musicOn) return; // needs an unlocked context; idempotent
+  musicOn = true;
+  musicMaster = ctx.createGain();
+  musicMaster.gain.value = muted ? 0 : MUSIC_VOL;
+  musicMaster.connect(ctx.destination);
+  musicStep = 0;
+  musicNextTime = ctx.currentTime + 0.06;
+  const stepDur = 60 / 128 / 2; // eighth notes @ 128 bpm
+  musicScheduler(stepDur);
+}
+
+export function stopMusic() {
+  musicOn = false;
+  if (musicTimer) {
+    clearTimeout(musicTimer);
+    musicTimer = null;
+  }
+  if (musicMaster) {
+    const m = musicMaster;
+    musicMaster = null;
+    try {
+      m.gain.setTargetAtTime(0, ctx.currentTime, 0.04);
+    } catch (e) {
+      /* context gone */
+    }
+    setTimeout(() => {
+      try {
+        m.disconnect();
+      } catch (e) {
+        /* already gone */
+      }
+    }, 300);
+  }
 }
 
 // Sustained, pitch-bendable tone — for the tuning game (Quackoustic).

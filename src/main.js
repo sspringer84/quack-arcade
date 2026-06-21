@@ -236,6 +236,7 @@ const hubScene = {
   embers: null,
   update(e, dt) {
     this.t += dt;
+    audio.startMusic(); // arcade bed in the hub (idempotent; no-op until audio unlocks)
     if (!this.embers) {
       // resolution-independent drifting neon dust (fractions of W/H)
       this.embers = [];

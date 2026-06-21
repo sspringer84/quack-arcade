@@ -161,3 +161,25 @@ export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
 // frame-rate-independent damping toward a target
 export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
+
+// Word-wrap `text` to fit `maxWidth` under the ctx's CURRENT font. Splits on
+// spaces; an over-long single word is kept on its own line (canvas can't hyphenate).
+// Returns the lines; the caller stacks them. (Canvas fillText never wraps — this
+// is what keeps long German strings from running off a narrow phone screen.)
+export function wrapText(ctx, text, maxWidth) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let line = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const test = line + " " + words[i];
+    if (ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = words[i];
+    } else {
+      line = test;
+    }
+  }
+  lines.push(line);
+  return lines;
+}
