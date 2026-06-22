@@ -227,12 +227,14 @@ export function createMic({ onJump, onMeter, onState } = {}) {
     }
 
     const floorLevel = toLevel(floor);
-    // margin above the ambient floor. RAISED for the widened 150-3500 band: the
-    // wider band passes more energy (voice + room), so the old 0.13-0.02 range was
-    // too trigger-happy. Now mid-slider ~0.12 over floor, max-sensitivity ~0.05 —
-    // still under a firm quack/squeak, clearer of ambient. Injectable for tuning.
-    const mLo = (typeof window !== "undefined" && window.__MIC_MLO__) || 0.22;
-    const mHi = (typeof window !== "undefined" && window.__MIC_MHI__) || 0.05;
+    // margin above the ambient floor. LOWERED again: a phone mic (AGC off) reads
+    // quieter than a desktop mic, so even lowest-sensitivity barely cleared the
+    // 0.22 floor on mobile. Now lowest-sens ~0.08 over floor, max-sens ~0.015 —
+    // easy to trigger a quack on a phone. (Mobile is the real play surface.)
+    // The earlier "too sensitive" was the screen-shake, not the jump, and that is
+    // fixed separately via SHAKE_LOUD. Injectable for tuning.
+    const mLo = (typeof window !== "undefined" && window.__MIC_MLO__) || 0.08;
+    const mHi = (typeof window !== "undefined" && window.__MIC_MHI__) || 0.015;
     const margin = lerp(mLo, mHi, sens);
     const triggerLevel = Math.max(floorLevel + margin, ABS_MIN_LEVEL);
     const releaseLevel = floorLevel + margin * 0.5; // hysteresis
