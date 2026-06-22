@@ -10,7 +10,6 @@ Projekt-lokale Regeln. Jede Session in diesem Repo befolgt sie.
 
 ## Was wir bauen
 „Quack Arcade" — Hub mit 3 Enten-Minispielen. Reihenfolge: **DUCK & COVER → Quack Lift → Quackoustic**.
-Voller Plan + zweites Gehirn: `~/clients/building-challenge/notes/CONTEXT.md`.
 
 ## Leitprinzip — „immer auslieferbar"
 Kein Spiel anfangen, bevor das vorige sauber-spielbar + committet + gepusht ist. Zeit knapp → lieber 1–2 polierte Spiele als 3 kaputte.
@@ -22,4 +21,4 @@ Kein Spiel anfangen, bevor das vorige sauber-spielbar + committet + gepusht ist.
 - Mobile + Desktop: Touch via Pointer-Events, `touch-action:none`, AudioContext-Unlock per Geste.
 
 ## Deploy
-`*.pages.dev` über Cloudflare (Projekt `building-challenge`). Deploy-Befehl + Token siehe CONTEXT.md.
+Statisch über Cloudflare Pages (`*.pages.dev`). Deploy-Credentials liegen außerhalb des Repos (nie eingecheckt).
