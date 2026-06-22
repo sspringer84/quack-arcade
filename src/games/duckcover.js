@@ -617,7 +617,8 @@ export function duckCover(engine, goHub, micUi) {
     ctx.font = "12px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(120,205,230,0.10)";
+    const cbA = (typeof window !== "undefined" && window.__CODEBG_ALPHA__) || 0.2;
+    ctx.fillStyle = "rgba(120,205,230," + cbA + ")";
     const CLH = 20; // code line height
     const CN = CODE_BG.length, cBlock = CN * CLH;
     const coff = ((((-cam) * 0.3) % cBlock) + cBlock) % cBlock; // slow parallax scroll
