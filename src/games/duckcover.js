@@ -758,18 +758,20 @@ export function duckCover(engine, goHub, micUi) {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText("bugs fixed: " + score, ox + 14 + sl, 12 + st);
-    // right column: hub link, the points score, and the points record ("best").
-    // best pairs with score (both points-scale) — never under the raw bug count.
-    ctx.textAlign = "right";
+    // hub link top-LEFT, below the counter — same corner as Quack Lift, and clear
+    // of the fixed mute/music buttons in the top-right.
     ctx.fillStyle = "rgba(223,230,243,0.55)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("‹ hub", hudR, 14 + st);
+    ctx.fillText("‹ hub", ox + 14 + sl, 44 + st);
+    // right column: the points score + the points record ("best"). best pairs with
+    // score (both points-scale) — never under the raw bug count.
+    ctx.textAlign = "right";
     ctx.fillStyle = "#ffd23f";
     ctx.font = "bold 15px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("score " + points.toLocaleString(), hudR, 36 + st);
+    ctx.fillText("score " + points.toLocaleString(), hudR, 14 + st);
     ctx.fillStyle = "rgba(223,230,243,0.5)";
     ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
-    ctx.fillText("best " + best.toLocaleString(), hudR, 54 + st);
+    ctx.fillText("best " + best.toLocaleString(), hudR, 36 + st);
     ctx.textAlign = "left";
     // combo chip + draining timer bar — only while a chain is live
     if (combo >= 2) {
@@ -934,10 +936,9 @@ export function duckCover(engine, goHub, micUi) {
   function onPress(e, ev) {
     const { cw, ox } = col(e.width);
     const p = e.input.pointer;
-    // top-right "hub" tap returns to the menu. Generous box: it must cover the
-    // whole visible "‹ hub" label (drawn around W-104..W-64) plus finger slop —
-    // the old 70x40 zone missed the left half of the label.
-    if (ev && ev.clientX !== undefined && p.x > ox + cw - 116 && p.y < 60) {
+    // top-LEFT "hub" tap returns to the menu — same corner + hitbox as Quack Lift,
+    // clear of the top-right mute buttons. Generous box covers the "‹ hub" label + slop.
+    if (ev && ev.clientX !== undefined && p.x < ox + 84 && p.y < 60) {
       goHub();
       return;
     }

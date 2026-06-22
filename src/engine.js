@@ -172,10 +172,15 @@ export class Engine {
   // highscore(key, value) to submit a new score (keeps the max).
   highscore(key, value) {
     const k = "quack-arcade:hs:" + key;
-    const cur = Number(localStorage.getItem(k) || 0);
+    // localStorage access can THROW (Safari "Block All Cookies", sandboxed
+    // iframe, locked-down browsers). It is read every hub frame, so an unguarded
+    // throw here would kill the rAF loop -> blank canvas. Guard both ends; on a
+    // throw the game just runs without persistence instead of bricking.
+    let cur = 0;
+    try { cur = Number(localStorage.getItem(k) || 0); } catch (e) { /* storage blocked */ }
     if (value === undefined) return cur;
     if (value > cur) {
-      localStorage.setItem(k, String(value));
+      try { localStorage.setItem(k, String(value)); } catch (e) { /* storage blocked */ }
       return value;
     }
     return cur;

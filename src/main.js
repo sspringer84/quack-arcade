@@ -55,6 +55,13 @@ musicBtn.addEventListener("click", () => {
   musicBtn.title = m ? "Musik an" : "Musik aus";
 });
 
+// reflect persisted mute/music state on the buttons at boot — the HTML hardcodes
+// "on" defaults, so without this a reload would show 🔊/music-on while audio.js
+// already remembers the user muted it last session.
+muteBtn.textContent = audio.isMuted() ? "🔇" : "🔊";
+musicBtn.setAttribute("aria-pressed", audio.isMusicMuted() ? "false" : "true");
+musicBtn.title = audio.isMusicMuted() ? "Musik an" : "Musik aus";
+
 // --- mic (rubber-duck-squeak) controller UI ---
 const micEl = document.getElementById("mic");
 const micToggle = document.getElementById("mic-toggle");

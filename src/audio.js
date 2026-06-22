@@ -3,7 +3,11 @@
 // a user gesture (browser autoplay policy), so call unlock() on first input.
 
 let ctx = null;
-let muted = false;
+// mute state persists across page reloads (guarded — storage may be blocked).
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* blocked */ } };
+const MUTE_KEY = "quack:muted", MUSIC_KEY = "quack:musicmuted";
+let muted = lsGet(MUTE_KEY) === "1";
 // Optional sink notified whenever the game emits sound, so the mic controller
 // can open a self-mute window (AEC is off, so our own quack re-enters the mic).
 let onOut = null;
@@ -25,6 +29,7 @@ export function ready() {
 }
 export function setMuted(m) {
   muted = !!m;
+  lsSet(MUTE_KEY, muted ? "1" : "0");
   applyMusicMute();
 }
 export function isMuted() {
@@ -32,6 +37,7 @@ export function isMuted() {
 }
 export function toggleMuted() {
   muted = !muted;
+  lsSet(MUTE_KEY, muted ? "1" : "0");
   applyMusicMute();
   return muted;
 }
@@ -108,7 +114,7 @@ let musicOn = false;
 let musicTimer = null;
 let musicStep = 0;
 let musicNextTime = 0;
-let musicMuted = false; // dedicated music toggle (separate from the master mute)
+let musicMuted = lsGet(MUSIC_KEY) === "1"; // dedicated music toggle (separate from the master mute), persisted
 let micSuspend = false; // music ducks to silence while the mic is live (DC squeak detector)
 const MUSIC_VOL = 0.07; // master level for the whole bed — keep it a background wash
 // A-minor flavoured: a bright square arp over a rounder triangle bass.
@@ -129,6 +135,7 @@ function applyMusicMute() {
 }
 export function toggleMusicMuted() {
   musicMuted = !musicMuted;
+  lsSet(MUSIC_KEY, musicMuted ? "1" : "0");
   applyMusicMute();
   return musicMuted;
 }

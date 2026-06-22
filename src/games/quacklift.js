@@ -847,9 +847,9 @@ export function quackLift(engine, goHub) {
   }
 
   function onPress(e, ev) {
-    // top-left hub tap returns to the menu
+    // top-left hub tap returns to the menu (same corner + hitbox width as DUCK & COVER)
     const p = e.input.pointer;
-    if (ev && ev.clientX !== undefined && p.x < 70 && p.y < 60) {
+    if (ev && ev.clientX !== undefined && p.x < 84 && p.y < 60) {
       goHub();
       return;
     }
