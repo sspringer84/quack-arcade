@@ -221,7 +221,7 @@ export function quackoustic(engine, goHub, micUi) {
   let state, run, best, holding, t, toneHandle;
   let particles, popups, rings, flash, shake, lockGlow, perfectT;
   // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback
-  let pitchMic, micReady, micState, voicePitchHz, lastVoiceMs;
+  let pitchMic, micReady, micState, voicePitchHz, lastVoiceMs, rawVoiceHz;
 
   // map the player's sung Hz range to the game's musical pitch axis, so a
   // comfortable hum reaches the low notes and a high note reaches the top.
@@ -262,6 +262,7 @@ export function quackoustic(engine, goHub, micUi) {
     perfectT = 0;
     voicePitchHz = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
     lastVoiceMs = 9999;
+    rawVoiceHz = 0;
   }
 
   const TONE_GAIN = () => winNum("__TONE_GAIN__", 0.09);
@@ -501,13 +502,18 @@ export function quackoustic(engine, goHub, micUi) {
 
     // ?dbg readout
     if (DBG) {
-      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(8, H - 64, 232, 56);
+      ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(8, H - 80, 270, 72);
       ctx.fillStyle = "#9fe9ff"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.font = "11px 'JetBrains Mono', ui-monospace, monospace";
       const nb = (() => { let n = null; for (const b of run.S.bands) if (!b.locked && !b.missed && b.x > nowX - HH && (!n || b.x < n.x)) n = b; return n; })();
-      ctx.fillText("pitch " + run.S.pitch.toFixed(0) + "Hz", 14, H - 60);
+      // voice readout: raw sung Hz -> mapped game pitch, the mic state, and the
+      // current voice range so VOICE_LO/HI can be calibrated on a real phone.
+      ctx.fillStyle = micReady ? "#7CFF9B" : "#ffb27a";
+      ctx.fillText("voice " + (rawVoiceHz ? rawVoiceHz.toFixed(0) + "Hz" : "—") + " [" + micState + "] -> " + voicePitchHz.toFixed(0) + "  range " + VOICE_LO() + "-" + VOICE_HI(), 14, H - 76);
+      ctx.fillStyle = "#9fe9ff";
+      ctx.fillText("duck " + run.S.pitch.toFixed(0) + "Hz", 14, H - 60);
       ctx.fillText("target " + (nb ? nb.hz.toFixed(0) + "±" + nb.tol.toFixed(0) : "—"), 14, H - 46);
-      ctx.fillText("scroll " + Math.min(run.cfg.SCROLL_CAP, run.cfg.SCROLL0 + run.S.score * run.cfg.SCROLL_RAMP).toFixed(0) + " · rise " + run.cfg.PITCH_RISE + " · gain " + TONE_GAIN(), 14, H - 32);
+      ctx.fillText("scroll " + Math.min(run.cfg.SCROLL_CAP, run.cfg.SCROLL0 + run.S.score * run.cfg.SCROLL_RAMP).toFixed(0) + " · gain " + TONE_GAIN(), 14, H - 32);
     }
 
     // voice guidance while playing (until the mic is confirmed active)
@@ -572,7 +578,7 @@ export function quackoustic(engine, goHub, micUi) {
   function tryEnableVoice() {
     if (pitchMic) return;
     pitchMic = createPitchMic({
-      onPitch: (hz, clarity, sm) => { if (sm > 0) { voicePitchHz = voiceToGame(sm); lastVoiceMs = 0; } },
+      onPitch: (hz, clarity, sm) => { if (sm > 0) { voicePitchHz = voiceToGame(sm); lastVoiceMs = 0; rawVoiceHz = sm; } },
       onState: (s) => {
         micState = s;
         if (s === "ready" || s === "requesting") { micReady = s === "ready"; audio.setMicSuspend(true); }
