@@ -15,6 +15,18 @@ import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 import { wrapText } from "../engine.js";
 
+// Play-state poses (Flux Schnell, chroma-keyed). The canvas drawDuck() is the
+// fallback until they load, so geometry never depends on an asset.
+function loadImg(src) {
+  if (typeof Image === "undefined") return { img: null, ready: false };
+  const o = { img: new Image(), ready: false };
+  o.img.onload = () => (o.ready = true);
+  o.img.src = src;
+  return o;
+}
+const duckSing = loadImg("assets/duck-sing.png");   // default singing pose
+const duckTuned = loadImg("assets/duck-tuned.png"); // brief flash on a PERFECT lock
+
 // A-minor pentatonic ladder (Hz), ascending, spanning PITCH_LO..PITCH_HI. Notes
 // are drawn from here so locks land on a consonant scale and compose a melody.
 export const SCALE = [
@@ -206,7 +218,7 @@ export function quackoustic(engine, goHub, micUi) {
   const winNum = (k, d) => (typeof window !== "undefined" && window[k] != null ? window[k] : d);
 
   let state, run, best, holding, t, toneHandle;
-  let particles, popups, rings, flash, shake, lockGlow;
+  let particles, popups, rings, flash, shake, lockGlow, perfectT;
 
   function column(H) { return { top: H * 0.14, bot: H * 0.86 }; }
 
@@ -235,6 +247,7 @@ export function quackoustic(engine, goHub, micUi) {
     flash = 0;
     shake = 0;
     lockGlow = 0;
+    perfectT = 0;
   }
 
   const TONE_GAIN = () => winNum("__TONE_GAIN__", 0.09);
@@ -258,6 +271,7 @@ export function quackoustic(engine, goHub, micUi) {
       popups.push({ x: run.nowX + DUCK_R, y, txt: (ev.perfect ? "PERFEKT " : "") + "+" + gain, life: 0.9, col: ev.perfect ? "#ffe66b" : "#dafbff" });
       flash = ev.perfect ? 0.32 : 0.18;
       lockGlow = 0.4;
+      if (ev.perfect) perfectT = 0.5; // brief blissful-pose flash
     } else if (ev.type === "miss") {
       audio.sadQuack();
       shake = 0.4;
@@ -277,6 +291,7 @@ export function quackoustic(engine, goHub, micUi) {
     if (flash > 0) flash = Math.max(0, flash - dt * 1.6);
     if (shake > 0) shake = Math.max(0, shake - dt * 1.8);
     if (lockGlow > 0) lockGlow = Math.max(0, lockGlow - dt * 1.4);
+    if (perfectT > 0) perfectT = Math.max(0, perfectT - dt);
   }
 
   function update(e, dt) {
@@ -398,10 +413,22 @@ export function quackoustic(engine, goHub, micUi) {
     }
     ctx.globalAlpha = 1;
 
-    // the duck riding its own pitch on the now-line
+    // the duck riding its own pitch on the now-line: a chroma-keyed sprite (sing
+    // pose, or the blissful pose right after a PERFECT lock), canvas fallback.
     const dy = pitchToY(run.S.pitch, top, bot);
     const squash = clampN(1 + (holding ? 0.12 : -0.06) + flash * 0.3, 0.82, 1.3);
-    drawDuck(ctx, nowX, dy, DUCK_R * 1.5, { squash, pose: state === "over" ? "sad" : "default" });
+    const sprite = state !== "over" && perfectT > 0 && duckTuned.ready ? duckTuned
+      : state !== "over" && duckSing.ready ? duckSing : null;
+    if (sprite) {
+      const h = DUCK_R * 1.5 * 1.7 * squash;
+      const w = h * (sprite.img.naturalWidth / sprite.img.naturalHeight);
+      ctx.save();
+      if (perfectT > 0) { ctx.shadowColor = "#ffe66b"; ctx.shadowBlur = 16; }
+      ctx.drawImage(sprite.img, nowX - w / 2, dy - h / 2, w, h);
+      ctx.restore();
+    } else {
+      drawDuck(ctx, nowX, dy, DUCK_R * 1.5, { squash, pose: state === "over" ? "sad" : "default" });
+    }
 
     // popups
     ctx.textAlign = "center";
