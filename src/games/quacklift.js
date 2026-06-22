@@ -22,12 +22,15 @@ if (duckImg) {
 // Wall MATERIAL: ice or stone — a cave hazard that fits "rette die Entchen" better than
 // neon. Each wall is a stalactite hanging from the top + a stalagmite rising from the
 // bottom, the tip pointing at the gap; the base sits at the screen edge. Sprites are
-// Sebastian's reference crops, scaled to each segment (spikes are elongated, so they
-// stretch naturally). Materials run in ZONES (a stretch of ice, then a stretch of stone).
+// CROPPED to their opaque content (see _verify/crop-spikes.mjs), so the drawn frame edge —
+// which the game aligns to the collision gap line — IS the visible spike tip. No phantom
+// deadly zone above the tip. Materials run in ZONES (a stretch of ice, then a stretch of stone).
 // A plain tapered canvas spike is the fallback until a sprite loads.
 const MATERIALS = ["ice", "stone"];
 const ZONE_LEN = 5; // walls per material zone before switching ice <-> stone
-const SPIKE_H = 150; // natural height of the stalactite/stalagmite tip (NOT stretched to the segment)
+const SPIKE_H = 80; // drawn height of the stalactite/stalagmite tip. Sprites are now CROPPED
+// to their content (no transparent padding), so the visible tip reaches the gap line exactly
+// (collision == what you see). Tune this for spike length only; the tip always meets the line.
 const MAT_COL = { ice: "#bfe9ff", stone: "#aeb6ba" }; // fallback spike tint per material
 // wall body = a rock/ice column (screen edge → near gap), brighter toward the gap. The
 // spike tip is drawn over the gap end at its natural aspect so it never looks stretched.
@@ -95,6 +98,9 @@ export function quackLift(engine, goHub) {
     !!QA &&
     typeof location !== "undefined" &&
     new URLSearchParams(location.search).has("bot");
+  // hitbox debug overlay: enable via ?hb=1 too (initScript sets window.__HB__ directly)
+  if (typeof window !== "undefined" && typeof location !== "undefined" &&
+      new URLSearchParams(location.search).has("hb")) window.__HB__ = true;
 
   let state, duck, water, walls, scroll, score, best, holding, t, wallCount;
   // second axis: ducklings + greed combo (reset only on death)
@@ -727,11 +733,74 @@ export function quackLift(engine, goHub) {
       ctx.restore();
     }
 
+    // --- DEBUG hitbox overlay (window.__HB__ / ?hb=1; dead in prod) ---
+    if (typeof window !== "undefined" && window.__HB__) drawHitboxes(ctx, W, H);
+
     if (state === "ready")
       banner(ctx, W, H, "QUACK LIFT", isTouch ? "Halten = hoch · loslassen = runter · 🐤 = Combo" : "Leertaste halten = hoch · loslassen = runter · 🐤 = Combo", "#36e6ff");
     else if (state === "over") {
       banner(ctx, W, H, pts.toLocaleString() + " Punkte", collected > 0 ? collected + " Küken gerettet · Glub glub." : "Glub glub. Die Ente ist abgesoffen.", "#ff7b9c", "Tippen für nochmal");
     }
+  }
+
+  // DEBUG: draw the TRUE collision geometry over the game so visual<->hitbox
+  // mismatch is visible. Red = deadly core strip (HITBOX_W wide). Green = safe
+  // channel + gap edge lines. Magenta = the duck's actual collision box/circle
+  // (radius DUCK_R). Cyan dashed = the duck's drawn sprite extent (DUCK_R*1.5*1.7).
+  function drawHitboxes(ctx, W, H) {
+    const dx = duckX(W);
+    ctx.save();
+    ctx.lineWidth = 2;
+    for (const wl of walls) {
+      const gapTop = wl.gapY - wl.gh / 2;
+      const gapBot = wl.gapY + wl.gh / 2;
+      const hbL = wl.x + (WALL_W - HITBOX_W) / 2;
+      // full decorative wall width (what you SEE) — yellow dashed
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = "rgba(255,214,63,0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(wl.x, 0, WALL_W, H);
+      ctx.setLineDash([]);
+      // deadly core strip (what KILLS): central HITBOX_W, above gapTop + below gapBot
+      ctx.fillStyle = "rgba(255,40,60,0.40)";
+      ctx.fillRect(hbL, 0, HITBOX_W, Math.max(0, gapTop));
+      ctx.fillRect(hbL, gapBot, HITBOX_W, Math.max(0, H - gapBot));
+      // safe channel inside the strip — green box
+      ctx.strokeStyle = "rgba(60,255,120,0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hbL, gapTop, HITBOX_W, gapBot - gapTop);
+      // gap edge lines across the wall so you can compare with the spike tips
+      ctx.setLineDash([3, 6]);
+      ctx.strokeStyle = "rgba(60,255,120,0.6)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(wl.x - 34, gapTop); ctx.lineTo(wl.x + WALL_W + 34, gapTop); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(wl.x - 34, gapBot); ctx.lineTo(wl.x + WALL_W + 34, gapBot); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // duck collision shape — the code tests an AABB [dx±DUCK_R, duck.y±DUCK_R]
+    ctx.strokeStyle = "rgba(255,0,230,0.95)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dx - DUCK_R, duck.y - DUCK_R, DUCK_R * 2, DUCK_R * 2);
+    ctx.beginPath();
+    ctx.arc(dx, duck.y, DUCK_R, 0, Math.PI * 2); // the intended circle
+    ctx.stroke();
+    // drawn sprite extent for comparison (what you SEE as the duck) — cyan dashed
+    const visH = DUCK_R * 1.5 * 1.7; // size * SPRITE_K
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(0,230,255,0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(dx - visH / 2, duck.y - visH / 2, visH, visH);
+    ctx.setLineDash([]);
+    // legend
+    ctx.font = "12px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const leg = [["rgba(255,40,60,0.9)", "red = deadly core (16px)"],
+      ["rgba(60,255,120,0.95)", "green = safe gap"],
+      ["rgba(255,0,230,0.95)", "magenta = duck collision (r22)"],
+      ["rgba(0,230,255,0.9)", "cyan = drawn duck sprite"]];
+    leg.forEach(([c, txt], i) => { ctx.fillStyle = c; ctx.fillText(txt, 10, H - 70 + i * 16); });
+    ctx.restore();
   }
 
   function banner(ctx, W, H, title, sub, color, foot) {
