@@ -79,6 +79,44 @@ const BUGS = [
   "premature optimization",
 ];
 
+// faint dev-code snippets scrolling behind the play column (rubber-duck-debugging
+// flavour). Short lines, indentation baked in (monospace). Includes the game-over
+// gag and Sebastian's coffee snippet. Paint-only background — never gameplay.
+const CODE_BG = [
+  "if (!coffee.Empty) {",
+  "    keepCoding();",
+  "} else {",
+  "    // break + coffee",
+  "}",
+  "",
+  "function fixBug(bug) {",
+  "    duck.explain(bug);",
+  "    return bug.solved;",
+  "}",
+  "",
+  "// have you tried",
+  "// explaining it",
+  "// to the duck?",
+  "rubberDuck.listen();",
+  "",
+  "while (stuck) {",
+  "    quack();",
+  "    rethink();",
+  "}",
+  "",
+  "try { ship(); }",
+  "catch (e) {",
+  "    blame(cache);",
+  "}",
+  "",
+  "const bugs = scan();",
+  "bugs.map(duck.fix);",
+  "",
+  "git commit -m 'fix'",
+  "git push --force //🙈",
+  "",
+];
+
 const GRAV = 2600;
 const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
@@ -568,6 +606,32 @@ export function duckCover(engine, goHub, micUi) {
       ctx.lineTo(ox + cw, gy + 0.5);
       ctx.stroke();
     }
+    // faint scrolling dev-code behind the column — fits the rubber-duck-debugging
+    // theme. Paint-only, cam-parallax (slower than the world = depth), clipped to
+    // the column so it never bleeds into the desktop side-art, very low alpha so it
+    // never fights the ledge labels. Stays subtle on mobile (full-width column).
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, 0, cw, H);
+    ctx.clip();
+    ctx.font = "12px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(120,205,230,0.10)";
+    const CLH = 20; // code line height
+    const CN = CODE_BG.length, cBlock = CN * CLH;
+    const coff = ((((-cam) * 0.3) % cBlock) + cBlock) % cBlock; // slow parallax scroll
+    let cli = Math.floor(coff / CLH);
+    let cy = cli * CLH - coff;
+    while (cy < H) {
+      const ln = CODE_BG[((cli % CN) + CN) % CN];
+      if (ln) ctx.fillText(ln, ox + 18, cy + CLH * 0.5);
+      cy += CLH;
+      cli++;
+    }
+    ctx.restore();
+    if (QA) QA.codeBg = true;
+
     // ambient data-motes — 3 parallax layers, cam-driven, no per-mote state
     ctx.save();
     ctx.fillStyle = "#36e6ff";
