@@ -122,9 +122,9 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const JUMP_BUFFER_MS = 140; // a jump input this long before landing still fires
-const SHAKE_LOUD = 2.5; // loudness over a max-height squeak that starts screen-shake.
-// RAISED from 1.1: the widened 150-3500 mic band inflates `loud`, so normal quacks
-// were shaking constantly. Live-tunable via window.__SHAKE_LOUD__.
+const SHAKE_LOUD = 1.8; // loudness over a max-height squeak that starts screen-shake.
+// Tuned for the widened 150-3500 mic band: 1.1 shook on every quack, 2.5 never shook;
+// 1.8 shakes on a firm quack only. Live-tunable via window.__SHAKE_LOUD__.
 const SHAKE_MAX = 15; // shake cap (px)
 const ONBOARD_DUR = 4500; // first-run onboarding hint duration (ms of play)
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
