@@ -842,7 +842,7 @@ export function duckCover(engine, goHub, micUi) {
     ctx.textBaseline = "middle";
     // wrap both lines first so the panel can size to fit on a narrow phone
     ctx.font = `bold ${tSize}px system-ui, sans-serif`;
-    const tLines = wrapText(ctx, "🦆 Echte Gummiente quietschen = Sprung", innerW);
+    const tLines = wrapText(ctx, "🦆 Ins Mikro quietschen/quaken = Sprung", innerW);
     ctx.font = `${sSize}px system-ui, sans-serif`;
     const sLines = wrapText(
       ctx,

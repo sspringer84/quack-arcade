@@ -36,7 +36,12 @@ const lsSet = (k, v) => {
 
 export function createMic({ onJump, onMeter, onState } = {}) {
   // --- tunables (see concrete_params) ---
-  const HP = 300, LP = 2000, FFT = 1024;
+  // band-pass edges. Widened from the original 300-2000 (tuned for a physical
+  // rubber-duck squeak) so a VOICE quack/squeak triggers too — most players have
+  // no squeak toy at hand. Injectable via window hooks for headless band tuning.
+  const HP = (typeof window !== "undefined" && window.__MIC_HP__) || 150,
+        LP = (typeof window !== "undefined" && window.__MIC_LP__) || 3500,
+        FFT = 1024;
   const CALIB_MS = 300, FLOOR_MIN = 0.004, FLOOR_MAX = 0.03;
   const TAU_UP = 3.0, TAU_DOWN = 0.4; // floor rise slow, fall fast (seconds)
   const ABS_MIN_LEVEL = 0.1, ATTACK_FRAMES = 2;

@@ -127,7 +127,7 @@ function renderMicState(st) {
       setStatus(
         micHintDone
           ? "Audio bleibt im Browser. Nichts wird gesendet."
-          : "Drück die Ente vors Mikro – lauter = höher 🦆"
+          : "Quietsch oder quak ins Mikro – lauter = höher 🦆"
       );
       break;
     case "noisy":
