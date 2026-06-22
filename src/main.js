@@ -70,7 +70,7 @@ const micFill = document.getElementById("mic-fill");
 const micTick = document.getElementById("mic-tick");
 const micSens = document.getElementById("mic-sens");
 const micStatus = document.getElementById("mic-status");
-const MIC_LABEL = "🦆 Quietschen = Sprung";
+const MIC_LABEL = "🦆 Quaken = Sprung";
 const MIC_SUPPORTED = !!(
   navigator.mediaDevices && navigator.mediaDevices.getUserMedia
 );

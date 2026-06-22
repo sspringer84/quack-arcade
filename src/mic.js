@@ -227,10 +227,13 @@ export function createMic({ onJump, onMeter, onState } = {}) {
     }
 
     const floorLevel = toLevel(floor);
-    // margin above the ambient floor. Calibrated to a real device (floor~0.31,
-    // squeak peak~0.70): at mid-slider trig sits ~0.08 over floor (~+6dB) — well
-    // under a real squeak, clear of ambient. At max sensitivity ~0.02 over floor.
-    const margin = lerp(0.13, 0.02, sens);
+    // margin above the ambient floor. RAISED for the widened 150-3500 band: the
+    // wider band passes more energy (voice + room), so the old 0.13-0.02 range was
+    // too trigger-happy. Now mid-slider ~0.12 over floor, max-sensitivity ~0.05 —
+    // still under a firm quack/squeak, clearer of ambient. Injectable for tuning.
+    const mLo = (typeof window !== "undefined" && window.__MIC_MLO__) || 0.22;
+    const mHi = (typeof window !== "undefined" && window.__MIC_MHI__) || 0.05;
+    const margin = lerp(mLo, mHi, sens);
     const triggerLevel = Math.max(floorLevel + margin, ABS_MIN_LEVEL);
     const releaseLevel = floorLevel + margin * 0.5; // hysteresis
     const hotNow = level > triggerLevel && selfMuteMs <= 0 && sawValidFrame;

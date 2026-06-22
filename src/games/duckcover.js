@@ -122,7 +122,9 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const JUMP_BUFFER_MS = 140; // a jump input this long before landing still fires
-const SHAKE_LOUD = 1.1; // mic loudness over a max-height squeak that starts shake
+const SHAKE_LOUD = 2.5; // loudness over a max-height squeak that starts screen-shake.
+// RAISED from 1.1: the widened 150-3500 mic band inflates `loud`, so normal quacks
+// were shaking constantly. Live-tunable via window.__SHAKE_LOUD__.
 const SHAKE_MAX = 15; // shake cap (px)
 const ONBOARD_DUR = 4500; // first-run onboarding hint duration (ms of play)
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
@@ -348,8 +350,9 @@ export function duckCover(engine, goHub, micUi) {
     audio.quack(340 + (t === null ? 0.5 : t) * 180 + Math.random() * 40);
     // screen-shake only on a squeak clearly LOUDER than a max-height one
     // (loud is uncapped; tap/keyboard pass none, so they never shake)
-    if (loud !== undefined && loud > SHAKE_LOUD)
-      shake = Math.max(shake, Math.min(SHAKE_MAX, 5 + (loud - SHAKE_LOUD) * 16));
+    const shakeGate = (typeof window !== "undefined" && window.__SHAKE_LOUD__) || SHAKE_LOUD;
+    if (loud !== undefined && loud > shakeGate)
+      shake = Math.max(shake, Math.min(SHAKE_MAX, 5 + (loud - shakeGate) * 16));
     if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v, loud });
   }
 
