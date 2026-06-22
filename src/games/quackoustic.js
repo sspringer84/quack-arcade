@@ -220,16 +220,48 @@ export function quackoustic(engine, goHub, micUi) {
 
   let state, run, best, holding, t, toneHandle;
   let particles, popups, rings, flash, shake, lockGlow, perfectT;
-  // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback
-  let pitchMic, micReady, micState, voicePitchHz, lastVoiceMs, rawVoiceHz;
+  // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback.
+  // The duck has a SMOOTH physical position (voiceDuckPitch): the sung frequency
+  // sets a target it eases toward, loudness nudges it up a little, SILENCE lets it
+  // drift gently DOWN (so the unreachable low end is reached by going quiet, not by
+  // singing impossibly low), and an ASSIST magnet pulls it toward the active band's
+  // centre — so the player can "einpegeln" very forgivingly.
+  let pitchMic, micReady, micState, voiceDuckPitch, lastVoiceMs, rawVoiceHz, voiceLevel;
 
-  // map the player's sung Hz range to the game's musical pitch axis, so a
-  // comfortable hum reaches the low notes and a high note reaches the top.
-  const VOICE_LO = () => winNum("__VOICE_LO__", 140);
-  const VOICE_HI = () => winNum("__VOICE_HI__", 520);
+  // map the player's COMFORTABLE sung range to the game's pitch axis. The low end
+  // of the column is owned by gravity (silence), so this only needs to cover the
+  // range the player can actually sing. Tunable on-device via ?dbg=1 readout.
+  const VOICE_LO = () => winNum("__VOICE_LO__", 165);
+  const VOICE_HI = () => winNum("__VOICE_HI__", 480);
   function voiceToGame(hz) {
     const frac = clampN((hz - VOICE_LO()) / (VOICE_HI() - VOICE_LO()), 0, 1);
     return PITCH_LO + frac * (PITCH_HI - PITCH_LO);
+  }
+  // the unresolved band closest to / at the now-line (what the assist helps with)
+  function activeBand() {
+    let n = null;
+    for (const b of run.S.bands)
+      if (!b.locked && !b.missed && b.x > run.nowX - run.cfg.HIT_HALF && b.x < run.nowX + run.cfg.HIT_HALF * 1.8 && (!n || b.x < n.x)) n = b;
+    return n;
+  }
+  // advance the duck's smooth pitch one frame from the voice + gravity + assist
+  function voiceStep(dt) {
+    const voiced = lastVoiceMs < winNum("__VOICE_GRACE__", 160);
+    if (voiced) {
+      const target = clampN(voiceToGame(rawVoiceHz) + winNum("__VOICE_LOUD__", 30) * voiceLevel, PITCH_LO, PITCH_HI);
+      voiceDuckPitch += (target - voiceDuckPitch) * winNum("__VOICE_EASE__", 7) * dt; // gentle glide, no overshoot
+    } else {
+      voiceDuckPitch -= winNum("__VOICE_GRAV__", 180) * dt; // quiet -> drift down
+    }
+    // assist magnet: gently centre the duck on the active band (user-friendly)
+    const ab = activeBand();
+    if (ab) {
+      const range = ab.tol * winNum("__VOICE_ASSIST_K__", 2.6);
+      if (Math.abs(voiceDuckPitch - ab.hz) < range)
+        voiceDuckPitch += (ab.hz - voiceDuckPitch) * winNum("__VOICE_ASSIST__", 5) * dt;
+    }
+    voiceDuckPitch = clampN(voiceDuckPitch, PITCH_LO, PITCH_HI);
+    return voiceDuckPitch;
   }
 
   function column(H) { return { top: H * 0.14, bot: H * 0.86 }; }
@@ -260,9 +292,10 @@ export function quackoustic(engine, goHub, micUi) {
     shake = 0;
     lockGlow = 0;
     perfectT = 0;
-    voicePitchHz = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
+    voiceDuckPitch = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
     lastVoiceMs = 9999;
     rawVoiceHz = 0;
+    voiceLevel = 0;
   }
 
   const TONE_GAIN = () => winNum("__TONE_GAIN__", 0.09);
@@ -330,9 +363,9 @@ export function quackoustic(engine, goHub, micUi) {
     lastVoiceMs += dt * 1000;
     const voiceActive = micReady; // mic granted & streaming -> the voice drives pitch
     if (state === "play") {
-      // VOICE mode: the duck's pitch IS the sung pitch (held value persists while
-      // silent, so a steady note keeps the duck still). HOLD mode is the fallback.
-      const ev = voiceActive ? run.step(dt, false, voicePitchHz) : run.step(dt, holding);
+      // VOICE mode: a smooth physical pitch driven by sung frequency + loudness,
+      // gravity on silence, and an assist magnet (voiceStep). HOLD is the fallback.
+      const ev = voiceActive ? run.step(dt, false, voiceStep(dt)) : run.step(dt, holding);
       for (const e2 of ev) handleEvent(e2, W, H);
       // self-tone ONLY in the hold fallback — in voice mode a continuous tone
       // would feed the AEC-off mic and poison pitch detection.
@@ -359,7 +392,8 @@ export function quackoustic(engine, goHub, micUi) {
       if (!b.locked && !b.missed && b.x > run.nowX - run.cfg.HIT_HALF && (!next || b.x < next.x)) next = b;
     QA.nextBandHz = next ? next.hz : null;
     QA.nextBandTol = next ? next.tol : null;
-    QA.voice = !!micReady; QA.micState = micState; QA.voicePitch = voicePitchHz;
+    QA.voice = !!micReady; QA.micState = micState;
+    QA.voicePitch = voiceDuckPitch; QA.rawVoiceHz = rawVoiceHz; QA.voiceLevel = voiceLevel;
     QA.W = W; QA.H = H;
   }
 
@@ -508,8 +542,9 @@ export function quackoustic(engine, goHub, micUi) {
       const nb = (() => { let n = null; for (const b of run.S.bands) if (!b.locked && !b.missed && b.x > nowX - HH && (!n || b.x < n.x)) n = b; return n; })();
       // voice readout: raw sung Hz -> mapped game pitch, the mic state, and the
       // current voice range so VOICE_LO/HI can be calibrated on a real phone.
-      ctx.fillStyle = micReady ? "#7CFF9B" : "#ffb27a";
-      ctx.fillText("voice " + (rawVoiceHz ? rawVoiceHz.toFixed(0) + "Hz" : "—") + " [" + micState + "] -> " + voicePitchHz.toFixed(0) + "  range " + VOICE_LO() + "-" + VOICE_HI(), 14, H - 76);
+      const voiced = lastVoiceMs < winNum("__VOICE_GRACE__", 160);
+      ctx.fillStyle = micReady ? (voiced ? "#7CFF9B" : "#ffd27a") : "#ffb27a";
+      ctx.fillText("voice " + (rawVoiceHz ? rawVoiceHz.toFixed(0) + "Hz" : "—") + " lvl " + (voiceLevel || 0).toFixed(2) + (voiced ? " ●" : " ·") + " [" + micState + "] range " + VOICE_LO() + "-" + VOICE_HI(), 14, H - 76);
       ctx.fillStyle = "#9fe9ff";
       ctx.fillText("duck " + run.S.pitch.toFixed(0) + "Hz", 14, H - 60);
       ctx.fillText("target " + (nb ? nb.hz.toFixed(0) + "±" + nb.tol.toFixed(0) : "—"), 14, H - 46);
@@ -578,7 +613,12 @@ export function quackoustic(engine, goHub, micUi) {
   function tryEnableVoice() {
     if (pitchMic) return;
     pitchMic = createPitchMic({
-      onPitch: (hz, clarity, sm) => { if (sm > 0) { voicePitchHz = voiceToGame(sm); lastVoiceMs = 0; rawVoiceHz = sm; } },
+      onPitch: (hz, clarity, sm, level) => {
+        voiceLevel = level || 0;
+        // a frame counts as "voiced" only with a real pitch AND enough loudness,
+        // so breathing/room tone lets the duck fall instead of jittering.
+        if (hz > 0 && sm > 0 && voiceLevel > winNum("__VOICE_GATE__", 0.12)) { rawVoiceHz = sm; lastVoiceMs = 0; }
+      },
       onState: (s) => {
         micState = s;
         if (s === "ready" || s === "requesting") { micReady = s === "ready"; audio.setMicSuspend(true); }

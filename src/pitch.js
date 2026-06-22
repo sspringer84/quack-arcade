@@ -145,9 +145,14 @@ export function createPitchMic({ onPitch, onState } = {}) {
     const loop = () => {
       if (!enabled || !analyser) return;
       analyser.getFloatTimeDomainData(buf);
+      // loudness (0..1) — a secondary control factor + the voiced gate
+      let ms = 0;
+      for (let i = 0; i < buf.length; i++) ms += buf[i] * buf[i];
+      const rms = Math.sqrt(ms / buf.length);
+      const level = clamp((20 * Math.log10(rms + 1e-7) + 70) / 70, 0, 1);
       const { hz, clarity } = detectPitch(buf, ctx.sampleRate);
       const sm = smooth(hz, clarity);
-      onPitch && onPitch(hz, clarity, sm);
+      onPitch && onPitch(hz, clarity, sm, level);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
