@@ -6,6 +6,7 @@ import { drawDuck } from "./duck.js";
 import * as audio from "./audio.js";
 import { duckCover } from "./games/duckcover.js";
 import { quackLift } from "./games/quacklift.js";
+import { quackoustic } from "./games/quackoustic.js";
 
 const canvas = document.getElementById("game");
 const engine = new Engine(canvas);
@@ -235,7 +236,7 @@ if (micSens) {
 const GAMES = [
   { key: "duckcover", title: "DUCK & COVER", sub: "Rubber-duck debugging climber", ready: true },
   { key: "quacklift", title: "QUACK LIFT", sub: "1-Knopf Tide-Climber", ready: true },
-  { key: "quackoustic", title: "QUACKOUSTIC", sub: "Squeeze-to-tune", ready: false },
+  { key: "quackoustic", title: "QUACKOUSTIC", sub: "1-Knopf Pitch-Tuner", ready: true },
 ];
 
 function goHub() {
@@ -246,8 +247,11 @@ function goHub() {
 function launch(key) {
   if (key === "duckcover") engine.setScene(duckCover(engine, goHub, micUi));
   else if (key === "quacklift") engine.setScene(quackLift(engine, goHub));
-  // quackoustic lands in a later phase
+  else if (key === "quackoustic") engine.setScene(quackoustic(engine, goHub, micUi));
 }
+// test-only: lets _verify/ mount a scene directly (e.g. QUACKOUSTIC while its hub
+// card is still "SOON"). Inert in production — only defined under ?qa=1.
+if (QA) window.__launch__ = launch;
 
 const hubScene = {
   t: 0,
