@@ -14,6 +14,7 @@
 import { drawDuck } from "../duck.js";
 import * as audio from "../audio.js";
 import { wrapText } from "../engine.js";
+import { createPitchMic } from "../pitch.js";
 
 // Play-state poses (Flux Schnell, chroma-keyed). The canvas drawDuck() is the
 // fallback until they load, so geometry never depends on an asset.
@@ -219,6 +220,17 @@ export function quackoustic(engine, goHub, micUi) {
 
   let state, run, best, holding, t, toneHandle;
   let particles, popups, rings, flash, shake, lockGlow, perfectT;
+  // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback
+  let pitchMic, micReady, micState, voicePitchHz, lastVoiceMs;
+
+  // map the player's sung Hz range to the game's musical pitch axis, so a
+  // comfortable hum reaches the low notes and a high note reaches the top.
+  const VOICE_LO = () => winNum("__VOICE_LO__", 140);
+  const VOICE_HI = () => winNum("__VOICE_HI__", 520);
+  function voiceToGame(hz) {
+    const frac = clampN((hz - VOICE_LO()) / (VOICE_HI() - VOICE_LO()), 0, 1);
+    return PITCH_LO + frac * (PITCH_HI - PITCH_LO);
+  }
 
   function column(H) { return { top: H * 0.14, bot: H * 0.86 }; }
 
@@ -248,6 +260,8 @@ export function quackoustic(engine, goHub, micUi) {
     shake = 0;
     lockGlow = 0;
     perfectT = 0;
+    voicePitchHz = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
+    lastVoiceMs = 9999;
   }
 
   const TONE_GAIN = () => winNum("__TONE_GAIN__", 0.09);
@@ -312,10 +326,19 @@ export function quackoustic(engine, goHub, micUi) {
       }
     }
 
+    lastVoiceMs += dt * 1000;
+    const voiceActive = micReady; // mic granted & streaming -> the voice drives pitch
     if (state === "play") {
-      const ev = run.step(dt, holding);
+      // VOICE mode: the duck's pitch IS the sung pitch (held value persists while
+      // silent, so a steady note keeps the duck still). HOLD mode is the fallback.
+      const ev = voiceActive ? run.step(dt, false, voicePitchHz) : run.step(dt, holding);
       for (const e2 of ev) handleEvent(e2, W, H);
-      if (toneHandle) { toneHandle.setFreq(run.S.pitch); toneHandle.setGain(audio.isMuted() ? 0 : TONE_GAIN()); }
+      // self-tone ONLY in the hold fallback — in voice mode a continuous tone
+      // would feed the AEC-off mic and poison pitch detection.
+      if (toneHandle) {
+        if (voiceActive) toneHandle.setGain(0);
+        else { toneHandle.setFreq(run.S.pitch); toneHandle.setGain(audio.isMuted() ? 0 : TONE_GAIN()); }
+      }
       stepFx(dt);
     } else {
       if (toneHandle) toneHandle.setGain(0);
@@ -335,6 +358,7 @@ export function quackoustic(engine, goHub, micUi) {
       if (!b.locked && !b.missed && b.x > run.nowX - run.cfg.HIT_HALF && (!next || b.x < next.x)) next = b;
     QA.nextBandHz = next ? next.hz : null;
     QA.nextBandTol = next ? next.tol : null;
+    QA.voice = !!micReady; QA.micState = micState; QA.voicePitch = voicePitchHz;
     QA.W = W; QA.H = H;
   }
 
@@ -486,9 +510,24 @@ export function quackoustic(engine, goHub, micUi) {
       ctx.fillText("scroll " + Math.min(run.cfg.SCROLL_CAP, run.cfg.SCROLL0 + run.S.score * run.cfg.SCROLL_RAMP).toFixed(0) + " · rise " + run.cfg.PITCH_RISE + " · gain " + TONE_GAIN(), 14, H - 32);
     }
 
+    // voice guidance while playing (until the mic is confirmed active)
+    if (state === "play" && !micReady) {
+      ctx.save();
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.font = "13px 'JetBrains Mono', ui-monospace, monospace";
+      const denied = micState === "denied" || micState === "nomic" || micState === "unsupported" || micState === "error";
+      ctx.fillStyle = denied ? "rgba(255,170,120,0.9)" : "rgba(255,255,255,0.7)";
+      const msg = micState === "requesting" ? "🎤 Mikro freigeben…"
+        : denied ? "kein Mikro – halten = höher, loslassen = tiefer"
+        : "🎤 erlaube das Mikro und SING";
+      ctx.fillText(msg, W / 2, 54 + st);
+      ctx.restore();
+    }
+
     if (state === "ready")
       banner(ctx, W, H, "QUACKOUSTIC",
-        isTouch ? "Halten = höher · loslassen = tiefer · triff die Töne" : "Leertaste halten = höher · loslassen = tiefer · triff die Töne", "#36e6ff");
+        "Tippen, dann ins Mikro SINGEN 🦆🎤 — tief = runter, hoch = hoch, halten = stehen. Triff die Töne!", "#36e6ff",
+        "kein Mikro? Halten/Loslassen tut's auch");
     else if (state === "over")
       banner(ctx, W, H, run.S.pts.toLocaleString() + " Punkte",
         run.S.locks + " Töne getroffen. " + (run.S.locks > 8 ? "Goldkehlchen! 🦆" : "Hast du's aus- und wieder eingeschaltet?"),
@@ -528,9 +567,23 @@ export function quackoustic(engine, goHub, micUi) {
     ctx.closePath();
   }
 
+  // request the mic on a user gesture; on grant the voice drives the duck, on any
+  // failure the hold fallback silently takes over.
+  function tryEnableVoice() {
+    if (pitchMic) return;
+    pitchMic = createPitchMic({
+      onPitch: (hz, clarity, sm) => { if (sm > 0) { voicePitchHz = voiceToGame(sm); lastVoiceMs = 0; } },
+      onState: (s) => {
+        micState = s;
+        if (s === "ready" || s === "requesting") { micReady = s === "ready"; audio.setMicSuspend(true); }
+        else { micReady = false; audio.setMicSuspend(false); }
+      },
+    });
+    pitchMic.enable(audio.unlock());
+  }
   function press() {
     if (state === "over") { reset(); return; }
-    if (state === "ready") state = "play";
+    if (state === "ready") { state = "play"; tryEnableVoice(); }
     holding = true;
   }
   function release() { holding = false; }
@@ -543,12 +596,16 @@ export function quackoustic(engine, goHub, micUi) {
   return {
     enter() {
       reset();
+      pitchMic = null; micReady = false; micState = "idle";
       audio.startMusic();
       toneHandle = audio.tone(run.S.pitch);
       if (toneHandle) toneHandle.setGain(0);
     },
     exit() {
       if (toneHandle) { toneHandle.stop(); toneHandle = null; }
+      if (pitchMic) { pitchMic.disable(); pitchMic = null; }
+      micReady = false;
+      audio.setMicSuspend(false);
     },
     onResize() { if (state === "ready") reset(); },
     update,
