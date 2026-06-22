@@ -122,9 +122,10 @@ const JUMP = 1040; // tap / keyboard jump velocity (unchanged default)
 const JUMP_MIN = 720; // mic: softest squeak — still clears one ledge gap
 const JUMP_MAX = 1180; // mic: hardest squeeze — can skip a ledge
 const JUMP_BUFFER_MS = 140; // a jump input this long before landing still fires
-const SHAKE_LOUD = 1.8; // loudness over a max-height squeak that starts screen-shake.
-// Tuned for the widened 150-3500 mic band: 1.1 shook on every quack, 2.5 never shook;
-// 1.8 shakes on a firm quack only. Live-tunable via window.__SHAKE_LOUD__.
+const SHAKE_LOUD = 0.6; // loudness gate that starts screen-shake. A PHONE mic (AGC
+// off) is quiet, so even a scream's `loud` (peak over floor / STR_SPAN) stays well
+// under 1 — gates of 1.1-2.5 never fired on mobile. 0.6 catches a firm phone quack.
+// Live-tunable via window.__SHAKE_LOUD__; show the live value with ?dbg=1.
 const SHAKE_MAX = 15; // shake cap (px)
 const ONBOARD_DUR = 4500; // first-run onboarding hint duration (ms of play)
 const MAX_JUMPS = 1; // single jump (column normalization made double-jump too easy)
@@ -166,6 +167,10 @@ export function duckCover(engine, goHub, micUi) {
     new URLSearchParams(location.search).has("bot");
   let botAxis = 0;
   let botTarget = null;
+  // ?dbg=1: show the last mic jump's `loud` value + the shake gate on-screen, so
+  // the mic shake can be tuned on a phone (no console). Dead in prod otherwise.
+  const DBG = typeof location !== "undefined" && new URLSearchParams(location.search).has("dbg");
+  let lastLoud = 0;
 
   let state, duck, plats, cam, score, best, topY, autoScroll, facing;
   // floating virtual joystick (touch): grabbed in the bottom-left, steers L/R.
@@ -351,6 +356,7 @@ export function duckCover(engine, goHub, micUi) {
     // screen-shake only on a squeak clearly LOUDER than a max-height one
     // (loud is uncapped; tap/keyboard pass none, so they never shake)
     const shakeGate = (typeof window !== "undefined" && window.__SHAKE_LOUD__) || SHAKE_LOUD;
+    if (loud !== undefined) lastLoud = loud;
     if (loud !== undefined && loud > shakeGate)
       shake = Math.max(shake, Math.min(SHAKE_MAX, 5 + (loud - shakeGate) * 16));
     if (QA) QA.jumps.push({ strength: t === null ? undefined : t, v, loud });
@@ -804,6 +810,17 @@ export function duckCover(engine, goHub, micUi) {
       ctx.save();
       ctx.globalAlpha = alpha;
       drawDuck(ctx, W - sz * 0.85 - 10, H * 0.5, sz, { pose: "love" });
+      ctx.restore();
+    }
+
+    if (DBG) {
+      const gate = (typeof window !== "undefined" && window.__SHAKE_LOUD__) || SHAKE_LOUD;
+      ctx.save();
+      ctx.fillStyle = lastLoud > gate ? "#3ad07a" : "#ff7b9c";
+      ctx.font = "bold 17px 'JetBrains Mono', ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText("loud " + lastLoud.toFixed(2) + " / gate " + (+gate).toFixed(2), W / 2, 84 + e.safe.top);
       ctx.restore();
     }
 
