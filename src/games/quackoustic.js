@@ -60,24 +60,15 @@ export function yToPitch(y, top, bot) {
   return PITCH_LO + frac * (PITCH_HI - PITCH_LO);
 }
 
-const nearestIdx = (hz) => {
-  let bi = 0, bd = Infinity;
-  for (let i = 0; i < SCALE.length; i++) {
-    const d = Math.abs(SCALE[i] - hz);
-    if (d < bd) { bd = d; bi = i; }
-  }
-  return bi;
-};
-
-// Next target note: a scale step from the previous note. The interval span grows
-// with score (small early, larger late) for a rising skill ceiling. `rnd` is
-// injectable so the generator is deterministic in tests.
-export function nextNote(prevHz, score, rnd = Math.random) {
-  const prevIdx = nearestIdx(prevHz);
-  const maxStep = 1 + Math.floor(score / 6);
-  const step = Math.floor(rnd() * (2 * maxStep + 1)) - maxStep; // [-maxStep, maxStep]
-  let idx = clampN(prevIdx + step, 0, SCALE.length - 1);
-  if (idx === prevIdx) idx = clampN(prevIdx + (prevIdx < SCALE.length - 1 ? 1 : -1), 0, SCALE.length - 1);
+// Target note from a slow triangle SWEEP over the scale, so every run climbs and
+// descends through the WHOLE range (a pleasing staircase) instead of a random walk
+// that can get stuck clustered in one zone. `phase` advances per band; `rnd` adds a
+// small ±1-step jitter so it isn't a rigid staircase.
+export function sweepNote(phase, rnd = Math.random) {
+  const p = phase - Math.floor(phase);       // wrap to [0,1)
+  const tri = p < 0.5 ? p * 2 : 2 - p * 2;   // 0 -> 1 -> 0 across the cycle
+  let idx = Math.round(tri * (SCALE.length - 1));
+  idx = clampN(idx + (Math.floor(rnd() * 3) - 1), 0, SCALE.length - 1); // ±1 jitter
   return SCALE[idx];
 }
 
@@ -116,6 +107,7 @@ export const DEFAULTS = {
   MULT_MAX: 9,       // combo multiplier cap
   BASE: 100,         // base points per lock (×mult)
   PERFECT_BONUS: 50, // extra points for a PERFECT-center lock
+  NOTE_SWEEP: 0.045, // phase advanced per band — the note staircase rate
 };
 
 // Build a logical run. `P` overrides any DEFAULT plus the layout
@@ -132,7 +124,7 @@ export function createRun(P = {}) {
     lives: 3, pts: 0, combo: 0, mult: 1,
     locks: 0, misses: 0, score: 0,
     over: false,
-    lastHz: SCALE[Math.floor(SCALE.length / 2)],
+    notePhase: rnd() * 0.3, // start low-ish, then sweep up — gentle opener + full coverage
   };
 
   const tol = () => Math.max(cfg.TOL_MIN, cfg.TOL0 - S.score * cfg.TOL_RAMP);
@@ -143,8 +135,8 @@ export function createRun(P = {}) {
       // first band sits one beat ahead of the DUCK (nowX), not at the right screen
       // edge — so the run-up is a device-consistent ~2s instead of ~9s on desktop.
       const base = S.bands.length ? rightmost : nowX;
-      const hz = cfg.noteForce != null ? cfg.noteForce : nextNote(S.lastHz, S.score, rnd);
-      S.lastHz = hz;
+      const hz = cfg.noteForce != null ? cfg.noteForce : sweepNote(S.notePhase, rnd);
+      S.notePhase += cfg.NOTE_SWEEP;
       S.bands.push({ hz, tol: tol(), x: base + cfg.SPACING, locked: false, missed: false, lockMs: 0, perfect: false });
     }
   }
@@ -219,7 +211,7 @@ export function quackoustic(engine, goHub, micUi) {
   const winNum = (k, d) => (typeof window !== "undefined" && window[k] != null ? window[k] : d);
 
   let state, run, best, holding, t, toneHandle;
-  let particles, popups, rings, flash, shake, lockGlow, perfectT;
+  let particles, popups, rings, flash, shake, lockGlow, perfectT, trailArr;
   // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback.
   // The duck has a SMOOTH physical position (voiceDuckPitch): the sung frequency
   // sets a target it eases toward, loudness nudges it up a little, SILENCE lets it
@@ -292,6 +284,7 @@ export function quackoustic(engine, goHub, micUi) {
     shake = 0;
     lockGlow = 0;
     perfectT = 0;
+    trailArr = [];
     voiceDuckPitch = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
     lastVoiceMs = 9999;
     rawVoiceHz = 0;
@@ -312,6 +305,9 @@ export function quackoustic(engine, goHub, micUi) {
     if (ev.type === "lock") {
       audio.quack(ev.hz, ev.perfect ? 0.22 : 0.18); // play the note -> a melody forms
       if (ev.perfect) audio.quack(ev.hz * 2, 0.12); // bright harmonic on a perfect
+      // combo arp: each consecutive lock stacks a brighter little note on top, so a
+      // streak audibly climbs (Sebastian's "Kombo = kleine Noten").
+      if (ev.mult >= 2) audio.quack(ev.hz * (1 + Math.min(ev.mult, 8) * 0.085), 0.09);
       const y = pitchToY(ev.hz, top, bot);
       spawnSpark(run.nowX, y, ev.perfect ? "#ffe66b" : "#36e6ff");
       rings.push({ x: run.nowX, y, r: DUCK_R, vr: 110, life: 0.5, col: ev.perfect ? "#ffe66b" : "#9becff" });
@@ -367,6 +363,8 @@ export function quackoustic(engine, goHub, micUi) {
       // gravity on silence, and an assist magnet (voiceStep). HOLD is the fallback.
       const ev = voiceActive ? run.step(dt, false, voiceStep(dt)) : run.step(dt, holding);
       for (const e2 of ev) handleEvent(e2, W, H);
+      trailArr.push(run.S.pitch); // oscilloscope trace of the sung line
+      if (trailArr.length > 80) trailArr.shift();
       // self-tone ONLY in the hold fallback — in voice mode a continuous tone
       // would feed the AEC-off mic and poison pitch detection.
       if (toneHandle) {
@@ -472,8 +470,30 @@ export function quackoustic(engine, goHub, micUi) {
     }
     ctx.globalAlpha = 1;
 
+    // pitch-trail: an oscilloscope trace of the sung line, newest at the now-line
+    // trailing left. Green while the duck is on the active band, soft cyan otherwise.
+    if (trailArr.length > 1) {
+      const ab = activeBand ? activeBand() : null;
+      const onBand = ab && isPitchIn(run.S.pitch, ab).hit;
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = onBand ? "rgba(124,255,155,0.85)" : "rgba(54,230,255,0.7)";
+      ctx.shadowColor = onBand ? "#7CFF9B" : "#36e6ff";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      for (let i = 0; i < trailArr.length; i++) {
+        const v = trailArr[trailArr.length - 1 - i];
+        const x = nowX - i * 2;
+        const y = pitchToY(v, top, bot);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // the duck riding its own pitch on the now-line: a chroma-keyed sprite (sing
     // pose, or the blissful pose right after a PERFECT lock), canvas fallback.
+    // Flipped to FACE the incoming bands (they scroll in from the right).
     const dy = pitchToY(run.S.pitch, top, bot);
     const squash = clampN(1 + (holding ? 0.12 : -0.06) + flash * 0.3, 0.82, 1.3);
     const sprite = state !== "over" && perfectT > 0 && duckTuned.ready ? duckTuned
@@ -483,7 +503,9 @@ export function quackoustic(engine, goHub, micUi) {
       const w = h * (sprite.img.naturalWidth / sprite.img.naturalHeight);
       ctx.save();
       if (perfectT > 0) { ctx.shadowColor = "#ffe66b"; ctx.shadowBlur = 16; }
-      ctx.drawImage(sprite.img, nowX - w / 2, dy - h / 2, w, h);
+      ctx.translate(nowX, dy);
+      ctx.scale(-1, 1); // mirror: face right toward the bands
+      ctx.drawImage(sprite.img, -w / 2, -h / 2, w, h);
       ctx.restore();
     } else {
       drawDuck(ctx, nowX, dy, DUCK_R * 1.5, { squash, pose: state === "over" ? "sad" : "default" });
