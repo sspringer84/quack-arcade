@@ -249,8 +249,8 @@ function launch(key) {
   else if (key === "quacklift") engine.setScene(quackLift(engine, goHub));
   else if (key === "quackoustic") engine.setScene(quackoustic(engine, goHub, micUi));
 }
-// test-only: lets _verify/ mount a scene directly (e.g. QUACKOUSTIC while its hub
-// card is still "SOON"). Inert in production — only defined under ?qa=1.
+// test-only: lets _verify/ mount any scene directly by key. Inert in production —
+// only defined under ?qa=1.
 if (QA) window.__launch__ = launch;
 
 const hubScene = {
