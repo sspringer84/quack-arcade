@@ -238,20 +238,28 @@ export function quackoustic(engine, goHub, micUi) {
   }
   // advance the duck's smooth pitch one frame from the voice + gravity + assist
   function voiceStep(dt) {
-    const voiced = lastVoiceMs < winNum("__VOICE_GRACE__", 160);
+    const prev = voiceDuckPitch;
+    // GRACE widened so brief gaps between sung notes don't flip to gravity (that
+    // flicker was a cause of the duck dropping hard).
+    const voiced = lastVoiceMs < winNum("__VOICE_GRACE__", 280);
     if (voiced) {
       const target = clampN(voiceToGame(rawVoiceHz) + winNum("__VOICE_LOUD__", 30) * voiceLevel, PITCH_LO, PITCH_HI);
       voiceDuckPitch += (target - voiceDuckPitch) * winNum("__VOICE_EASE__", 7) * dt; // gentle glide, no overshoot
     } else {
-      voiceDuckPitch -= winNum("__VOICE_GRAV__", 180) * dt; // quiet -> drift down
+      voiceDuckPitch -= winNum("__VOICE_GRAV__", 150) * dt; // quiet -> drift down (gentle)
     }
     // assist magnet: gently centre the duck on the active band (user-friendly)
     const ab = activeBand();
     if (ab) {
       const range = ab.tol * winNum("__VOICE_ASSIST_K__", 2.6);
       if (Math.abs(voiceDuckPitch - ab.hz) < range)
-        voiceDuckPitch += (ab.hz - voiceDuckPitch) * winNum("__VOICE_ASSIST__", 5) * dt;
+        voiceDuckPitch += (ab.hz - voiceDuckPitch) * winNum("__VOICE_ASSIST__", 4) * dt;
     }
+    // SLEW LIMIT: the duck can never jump — caps a HARD drop (and over-snappy rise)
+    // so motion always reads as a smooth glide whatever gravity/assist/detection do.
+    const maxUp = winNum("__VOICE_MAXUP__", 600) * dt;
+    const maxDn = winNum("__VOICE_MAXDN__", 230) * dt;
+    voiceDuckPitch = clampN(voiceDuckPitch, prev - maxDn, prev + maxUp);
     voiceDuckPitch = clampN(voiceDuckPitch, PITCH_LO, PITCH_HI);
     return voiceDuckPitch;
   }
