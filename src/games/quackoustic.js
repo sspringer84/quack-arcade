@@ -196,6 +196,8 @@ export function createRun(P = {}) {
 
 // --- scene (DOM + audio) ---------------------------------------------------
 const DUCK_R = 20;
+const NOTE_GLYPHS = ["♪", "♫", "♩", "♬"]; // ♪ ♫ ♩ ♬
+const NOTE_COLS = ["#36e6ff", "#ff4fa3", "#ffd23f", "#9b8cff"];
 
 export function quackoustic(engine, goHub, micUi) {
   const isTouch =
@@ -212,6 +214,7 @@ export function quackoustic(engine, goHub, micUi) {
 
   let state, run, best, holding, t, toneHandle;
   let particles, popups, rings, flash, shake, lockGlow, perfectT, trailArr;
+  let notesFx, noteAcc, eqBars; // floating music notes + voice equalizer state
   // voice (SingStar) control — the PRIMARY input; hold is the no-mic fallback.
   // The duck has a SMOOTH physical position (voiceDuckPitch): the sung frequency
   // sets a target it eases toward, loudness nudges it up a little, SILENCE lets it
@@ -293,6 +296,9 @@ export function quackoustic(engine, goHub, micUi) {
     lockGlow = 0;
     perfectT = 0;
     trailArr = [];
+    notesFx = [];
+    noteAcc = 0;
+    eqBars = new Array(22).fill(0); // smoothed equalizer bar heights (0..1)
     voiceDuckPitch = (PITCH_LO + PITCH_HI) / 2; // duck starts centered until the player sings
     lastVoiceMs = 9999;
     rawVoiceHz = 0;
@@ -307,6 +313,21 @@ export function quackoustic(engine, goHub, micUi) {
       particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.25, col: col || "#36e6ff" });
     }
   }
+  // a floating music note. drift = ambient (slow up), burst = flung from a lock.
+  function pushNote(x, y, col, burst) {
+    if (notesFx.length > 30) notesFx.shift();
+    notesFx.push({
+      x, y,
+      vx: burst ? (Math.random() - 0.5) * 120 : (Math.random() - 0.5) * 10,
+      vy: burst ? -70 - Math.random() * 90 : -18 - Math.random() * 16,
+      sway: 8 + Math.random() * 14, ph: Math.random() * 6.28,
+      size: 14 + Math.random() * 12, rot: (Math.random() - 0.5) * 0.6,
+      life: burst ? 1.0 + Math.random() * 0.4 : 2.4 + Math.random() * 1.6,
+      max: burst ? 1.4 : 4.0,
+      glyph: NOTE_GLYPHS[(Math.random() * NOTE_GLYPHS.length) | 0],
+      col: col || NOTE_COLS[(Math.random() * NOTE_COLS.length) | 0],
+    });
+  }
 
   function handleEvent(ev, W, H) {
     const { top, bot } = column(H);
@@ -318,6 +339,7 @@ export function quackoustic(engine, goHub, micUi) {
       if (ev.mult >= 2) audio.quack(ev.hz * (1 + Math.min(ev.mult, 8) * 0.085), 0.09);
       const y = pitchToY(ev.hz, top, bot);
       spawnSpark(run.nowX, y, ev.perfect ? "#ffe66b" : "#36e6ff");
+      for (let i = 0; i < (ev.perfect ? 6 : 4); i++) pushNote(run.nowX, y, ev.perfect ? "#ffe66b" : null, true);
       rings.push({ x: run.nowX, y, r: DUCK_R, vr: 110, life: 0.5, col: ev.perfect ? "#ffe66b" : "#9becff" });
       const gain = run.cfg.BASE * ev.mult + (ev.perfect ? run.cfg.PERFECT_BONUS : 0);
       popups.push({ x: run.nowX + DUCK_R, y, txt: (ev.perfect ? "PERFEKT " : "") + "+" + gain, life: 0.9, col: ev.perfect ? "#ffe66b" : "#dafbff" });
@@ -344,6 +366,8 @@ export function quackoustic(engine, goHub, micUi) {
     if (shake > 0) shake = Math.max(0, shake - dt * 1.8);
     if (lockGlow > 0) lockGlow = Math.max(0, lockGlow - dt * 1.4);
     if (perfectT > 0) perfectT = Math.max(0, perfectT - dt);
+    for (const nf of notesFx) { nf.x += nf.vx * dt; nf.y += nf.vy * dt; nf.vy += 5 * dt; nf.life -= dt; }
+    notesFx = notesFx.filter((nf) => nf.life > 0 && nf.y > -30);
   }
 
   function update(e, dt) {
@@ -373,6 +397,10 @@ export function quackoustic(engine, goHub, micUi) {
       for (const e2 of ev) handleEvent(e2, W, H);
       trailArr.push(run.S.pitch); // oscilloscope trace of the sung line
       if (trailArr.length > 80) trailArr.shift();
+      // ambient floating notes — more frequent as the combo climbs
+      noteAcc += dt;
+      const rate = 0.55 / (1 + (run.S.mult - 1) * 0.4);
+      if (noteAcc > rate) { noteAcc = 0; pushNote(Math.random() * W, H * (0.55 + Math.random() * 0.4), null, false); }
       // self-tone ONLY in the hold fallback — in voice mode a continuous tone
       // would feed the AEC-off mic and poison pitch detection.
       if (toneHandle) {
@@ -383,6 +411,13 @@ export function quackoustic(engine, goHub, micUi) {
     } else {
       if (toneHandle) toneHandle.setGain(0);
       stepFx(dt);
+    }
+    // voice equalizer bars ease toward a target driven by loudness + a per-bar wobble
+    const lvl = micReady ? voiceLevel : 0;
+    for (let i = 0; i < eqBars.length; i++) {
+      const wob = 0.5 + 0.5 * Math.sin(t * 6 + i * 0.7) * Math.sin(t * 2.3 + i);
+      const target = clampN(lvl * (0.55 + 0.7 * wob) + 0.05 * wob, 0, 1);
+      eqBars[i] += (target - eqBars[i]) * Math.min(1, 10 * dt);
     }
     writeQA(W, H);
   }
@@ -412,15 +447,56 @@ export function quackoustic(engine, goHub, micUi) {
     ctx.save();
     ctx.translate(sx, sy);
 
-    // backdrop: deep gradient + faint oscilloscope grid
+    // --- synthwave music-visualizer backdrop (warms + intensifies with combo) ---
+    const comboTier = clampN((run.S.mult - 1) / 8, 0, 1);
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#0a0e1a");
-    bg.addColorStop(1, "#0c1430");
+    bg.addColorStop(0, "#150a2a");
+    bg.addColorStop(0.55, "#0c1030");
+    bg.addColorStop(1, "#0a1432");
     ctx.fillStyle = bg;
     ctx.fillRect(-20, -20, W + 40, H + 40);
-    ctx.strokeStyle = "rgba(54,230,255,0.06)";
+    // retro sun glow behind the play column
+    const sunY = H * 0.46, sunR = Math.min(W * 0.42, 230);
+    const sun = ctx.createRadialGradient(W / 2, sunY, 6, W / 2, sunY, sunR);
+    sun.addColorStop(0, `rgba(255,${140 + comboTier * 70 | 0},120,${0.16 + comboTier * 0.12})`);
+    sun.addColorStop(0.6, "rgba(255,79,163,0.09)");
+    sun.addColorStop(1, "rgba(255,79,163,0)");
+    ctx.fillStyle = sun;
+    ctx.fillRect(0, 0, W, H);
+    // synthwave perspective floor grid below the play band
+    const horizon = bot + (H - bot) * 0.1;
+    ctx.save();
+    ctx.strokeStyle = "rgba(54,230,255,0.16)";
     ctx.lineWidth = 1;
-    for (let gy = top; gy <= bot; gy += (bot - top) / 8) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+    for (let i = 1; i <= 8; i++) { const y = horizon + i * i * (H - horizon) * 0.02; if (y > H) break; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W / 2 + i * 7, horizon); ctx.lineTo(W / 2 + i * (W * 0.17), H); ctx.stroke(); }
+    ctx.restore();
+    // voice equalizer along the very bottom — dances with the sung loudness
+    const ebN = eqBars.length, bw = W / ebN, ebMax = (H - horizon) * 0.95;
+    for (let i = 0; i < ebN; i++) {
+      const h = eqBars[i] * ebMax;
+      if (h < 1.5) continue;
+      const g = ctx.createLinearGradient(0, H - h, 0, H);
+      g.addColorStop(0, "rgba(54,230,255,0.55)");
+      g.addColorStop(1, `rgba(255,79,163,${0.16 + comboTier * 0.22})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(i * bw + 1, H - h, bw - 2, h);
+    }
+
+    // floating music notes (atmosphere; drawn behind the bands so they stay legible)
+    for (const nf of notesFx) {
+      const a = clampN(nf.life / nf.max, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = a * 0.8;
+      ctx.fillStyle = nf.col;
+      ctx.font = `${nf.size}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.translate(nf.x + Math.sin(t * 1.5 + nf.ph) * nf.sway, nf.y);
+      ctx.rotate(nf.rot);
+      ctx.fillText(nf.glyph, 0, 0);
+      ctx.restore();
+    }
 
     // scale guide ticks (faint) — where the consonant notes sit
     ctx.save();
@@ -529,6 +605,14 @@ export function quackoustic(engine, goHub, micUi) {
     }
     ctx.globalAlpha = 1;
 
+    // combo greed vignette — the whole screen glows warmer as the streak climbs
+    if (run.S.mult >= 3) {
+      const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.78);
+      vg.addColorStop(0, "rgba(255,79,163,0)");
+      vg.addColorStop(1, `rgba(255,79,163,${comboTier * 0.22})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
     // lock flash
     if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${clampN(flash, 0, 0.3)})`; ctx.fillRect(0, 0, W, H); }
 
