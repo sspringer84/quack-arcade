@@ -231,8 +231,8 @@ export function quackoustic(engine, goHub, micUi) {
   // map the player's COMFORTABLE sung range to the game's pitch axis. The low end
   // of the column is owned by gravity (silence), so this only needs to cover the
   // range the player can actually sing. Tunable on-device via ?dbg=1 readout.
-  const VOICE_LO = () => winNum("__VOICE_LO__", 165);
-  const VOICE_HI = () => winNum("__VOICE_HI__", 480);
+  const VOICE_LO = () => winNum("__VOICE_LO__", 120);
+  const VOICE_HI = () => winNum("__VOICE_HI__", 300);
   function voiceToGame(hz) {
     const frac = clampN((hz - VOICE_LO()) / (VOICE_HI() - VOICE_LO()), 0, 1);
     return PITCH_LO + frac * (PITCH_HI - PITCH_LO);
